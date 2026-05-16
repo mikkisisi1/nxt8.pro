@@ -62,7 +62,7 @@ class DeepSeekClient:
                 api_key=or_key,
                 base_url=os.environ.get("OPENROUTER_API_URL", "https://openrouter.ai/api/v1"),
                 model=os.environ.get("OPENROUTER_MODEL", "deepseek/deepseek-chat:free"),
-                supports_logprobs=False,  # :free tier does not return logprobs
+                supports_logprobs=True,  # paid v3-0324 returns logprobs; heuristic kicks in if absent
                 extra_headers={
                     "HTTP-Referer": os.environ.get("OPENROUTER_REFERRER", "https://nxt8.local"),
                     "X-Title": "NXT8",

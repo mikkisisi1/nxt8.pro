@@ -110,17 +110,14 @@ POST  /api/voice/converse   (multipart audio → STT→orchestrator→TTS, audio
 
 ## 7. Current state / test results
 
-- Backend: **25/25 pytest** pass (testing agent iter_2)
+- Backend: **25/25 pytest** pass (testing agent iter_2, re-run after OpenRouter switch)
 - Frontend: 100% of required flows verified, all 6 views render; MicView wired with MediaRecorder
-- DeepSeek: **MOCK fallback mode** — HTTP 402 from DeepSeek (balance), graceful fallback in `core/deepseek.py`. `/api/health` exposes `deepseek.last_error` and `deepseek.live` for diagnostics
-- Voice: **LIVE** via Emergent Universal LLM Key (`EMERGENT_LLM_KEY` in backend/.env), whisper-1 STT + tts-1 MP3 output verified end-to-end
+- LLM: **LIVE** via OpenRouter primary (`deepseek/deepseek-chat-v3-0324`) with direct DeepSeek fallback. Real logprob-based confidence scoring (no heuristic). Typical latency 3-7 sec.
+- Voice: **LIVE** via Emergent Universal LLM Key (`EMERGENT_LLM_KEY`), whisper-1 STT + tts-1 MP3 output verified end-to-end
+- `/api/health` exposes `deepseek.active_provider` and `deepseek.providers` for diagnostics
 - Seed produces 6 corporate memories, 4 employees, 4 deals, weak patterns for Junior Lee
 
 ## 8. Backlog / next tasks
-
-**P0 (when DeepSeek balance arrives):**
-- Validate live API: chat content quality, real logprobs → confidence
-- `/api/health` should report `deepseek.live=true` and `last_error=null` after first call
 
 **P1:**
 - Cross-Department Coordinator (port `install_cross_dept.sh` to internal module)
@@ -131,6 +128,7 @@ POST  /api/voice/converse   (multipart audio → STT→orchestrator→TTS, audio
 - Grafana dashboards / Prometheus metrics
 - Multi-tenant company scoping
 - Slack / WhatsApp channel adapters
+- Voice activity detection (auto start/stop based on silence) — make voice UI fully "invisible"
 
 ## 9. Personas
 
