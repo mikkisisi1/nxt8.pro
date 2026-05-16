@@ -194,56 +194,34 @@ function PipelineCard({ snapshot }) {
   );
 }
 
-const INCOMING_TASK_POOL = [
-  { title: "Reconcile Q1 invoices…", priority: "high", amount: 1800 },
-  { title: "Approve hire — Sr. ML…", priority: "critical", amount: 3200 },
-  { title: "Renew Slack workspace…", priority: "low", amount: 120 },
-  { title: "Draft AI policy v2…", priority: "medium", amount: 450 },
-  { title: "Sync with legal team…", priority: "medium", amount: 380 },
-  { title: "Refund Acme Corp…", priority: "high", amount: 920 },
-  { title: "Onboard new vendor…", priority: "medium", amount: 540 },
-  { title: "Patch security CVE…", priority: "critical", amount: 2750 },
-  { title: "Update OKR tracker…", priority: "low", amount: 80 },
-  { title: "Review board deck…", priority: "high", amount: 1500 },
-];
-
-const INITIAL_TASKS = [
-  {
-    id: "task-evening-report",
-    title: "Provide evening report…",
-    priority: "high",
-    amount: 200,
-    status: "open",
-  },
-  {
-    id: "task-team-plan",
-    title: "Send team plan…",
-    priority: "high",
-    amount: 0,
-    status: "done",
-  },
-  {
-    id: "task-enterprise-call",
-    title: "Call from enterprise…",
-    priority: "critical",
-    amount: 2400,
-    status: "open",
-  },
-  {
-    id: "task-pipeline-doc",
-    title: "Update pipeline doc…",
-    priority: "medium",
-    amount: 600,
-    status: "open",
-  },
-];
-
 const MAX_VISIBLE_TASKS = 5;
+
+function mapRequestToTask(req) {
+  let priority;
+  if (req.should_escalate) priority = "critical";
+  else if (req.confidence_level === "low") priority = "high";
+  else if (req.confidence_level === "medium") priority = "medium";
+  else priority = "low";
+
+  const status = req.verification_status === "verified" ? "done" : "open";
+  const rawTitle = (req.message || "").trim() || "(no message)";
+  const title =
+    rawTitle.length > 38 ? `${rawTitle.slice(0, 38).trim()}…` : rawTitle;
+
+  return {
+    id: req.id,
+    title,
+    priority,
+    amount: Math.max(1, Math.round((req.tokens_total || 0) / 4)),
+    status,
+  };
+}
 
 export default function HomeView() {
   const [snapshot, setSnapshot] = useState(null);
-  const [tasks, setTasks] = useState(INITIAL_TASKS);
-  const poolIdxRef = useRef(0);
+  const [tasks, setTasks] = useState([]);
+  const seenIdsRef = useRef(new Set());
+  const bootstrappedRef = useRef(false);
 
   const totalValue = tasks
     .filter((t) => t.status !== "done")
@@ -260,28 +238,49 @@ export default function HomeView() {
     };
   }, []);
 
-  // Simulate incoming tasks: new task appears at the bottom every ~6s,
-  // pushing the existing rows upward smoothly. Oldest row drops off the top
-  // when the list exceeds MAX_VISIBLE_TASKS.
+  // Poll real /requests feed. On first load: seed list with the latest N (oldest→newest).
+  // On subsequent polls: detect new request ids and append them to the bottom, oldest
+  // rows drop off the top once we exceed MAX_VISIBLE_TASKS. AnimatePresence + layout
+  // give us the smooth "rise" effect.
   useEffect(() => {
-    const tick = () => {
-      const template =
-        INCOMING_TASK_POOL[poolIdxRef.current % INCOMING_TASK_POOL.length];
-      poolIdxRef.current += 1;
-      const next = {
-        ...template,
-        id: `task-live-${Date.now()}-${poolIdxRef.current}`,
-        status: "open",
-      };
-      setTasks((prev) => {
-        const appended = [...prev, next];
-        return appended.length > MAX_VISIBLE_TASKS
-          ? appended.slice(appended.length - MAX_VISIBLE_TASKS)
-          : appended;
-      });
+    let mounted = true;
+
+    const poll = async () => {
+      try {
+        const list = await api.recentRequests(20);
+        if (!mounted || !Array.isArray(list)) return;
+        // backend returns newest-first; flip to chronological so newest appends last
+        const chrono = [...list].reverse();
+
+        if (!bootstrappedRef.current) {
+          const initial = chrono.slice(-MAX_VISIBLE_TASKS);
+          initial.forEach((r) => seenIdsRef.current.add(r.id));
+          setTasks(initial.map(mapRequestToTask));
+          bootstrappedRef.current = true;
+          return;
+        }
+
+        const fresh = chrono.filter((r) => !seenIdsRef.current.has(r.id));
+        if (fresh.length === 0) return;
+        fresh.forEach((r) => seenIdsRef.current.add(r.id));
+
+        setTasks((prev) => {
+          const appended = [...prev, ...fresh.map(mapRequestToTask)];
+          return appended.length > MAX_VISIBLE_TASKS
+            ? appended.slice(appended.length - MAX_VISIBLE_TASKS)
+            : appended;
+        });
+      } catch {
+        // network blip — skip this tick
+      }
     };
-    const t = setInterval(tick, 6000);
-    return () => clearInterval(t);
+
+    poll();
+    const t = setInterval(poll, 5000);
+    return () => {
+      mounted = false;
+      clearInterval(t);
+    };
   }, []);
 
   return (
