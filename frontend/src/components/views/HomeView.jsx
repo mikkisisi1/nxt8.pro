@@ -135,22 +135,24 @@ function PipelineCard({ snapshot }) {
       </div>
       <div className="flex-grow relative overflow-hidden rounded-lg flex items-center justify-center p-2">
         <div className="w-full flex flex-col items-center justify-center space-y-6 py-2">
-          <div className="flex items-center justify-between w-full max-w-sm relative px-4">
-            <div className="absolute left-[25%] right-[65%] top-1/2 -translate-y-1/2 flex items-center justify-center">
-              <div className="w-full border-t border-dashed border-brand-turquoise/40"></div>
-              <div className="absolute w-1.5 h-1.5 bg-brand-turquoise rounded-full dot-pulse animate-flicker"></div>
-            </div>
-            <div className="z-10 px-4 py-2 rounded-lg border border-white/10 bg-brand-dark/40 text-[10px] text-slate-400 uppercase tracking-widest">
+          <div className="flex items-center w-full max-w-sm relative gap-2">
+            <div className="z-10 px-3 py-2 rounded-lg border border-white/10 bg-brand-dark/40 text-[10px] text-slate-400 uppercase tracking-widest">
               Ingest
             </div>
-            <div className="z-10 px-6 py-2 rounded-lg border border-brand-turquoise/50 bg-brand-turquoise/10 text-[10px] text-brand-turquoise uppercase tracking-widest shadow-[0_0_15px_rgba(6,182,212,0.2),inset_0_0_10px_rgba(6,182,212,0.1)]">
+            <div className="pipe-line relative flex-1 h-4 flex items-center">
+              <div className="w-full border-t border-dashed border-brand-turquoise/40"></div>
+              <span className="pipe-dot" aria-hidden="true"></span>
+              <span className="pipe-dot pipe-dot--delayed" aria-hidden="true"></span>
+            </div>
+            <div className="z-10 px-5 py-2 rounded-lg border bg-brand-turquoise/10 text-[10px] text-brand-turquoise uppercase tracking-widest pipe-model-pulse">
               Model
             </div>
-            <div className="absolute left-[65%] right-[25%] top-1/2 -translate-y-1/2 flex items-center justify-center">
+            <div className="pipe-line relative flex-1 h-4 flex items-center">
               <div className="w-full border-t border-dashed border-brand-turquoise/40"></div>
-              <div className="absolute w-1.5 h-1.5 bg-brand-turquoise rounded-full dot-pulse animate-flicker"></div>
+              <span className="pipe-dot" aria-hidden="true"></span>
+              <span className="pipe-dot pipe-dot--delayed" aria-hidden="true"></span>
             </div>
-            <div className="z-10 px-4 py-2 rounded-lg border border-white/10 bg-brand-dark/40 text-[10px] text-slate-400 uppercase tracking-widest">
+            <div className="z-10 px-3 py-2 rounded-lg border border-white/10 bg-brand-dark/40 text-[10px] text-slate-400 uppercase tracking-widest">
               Output
             </div>
           </div>

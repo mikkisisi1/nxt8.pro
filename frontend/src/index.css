@@ -169,6 +169,68 @@ body {
   box-shadow: 0 0 8px rgba(6, 182, 212, 0.9);
 }
 
+/* Pipeline: dot traveling along a dashed line, looping left → right.
+   Parent <.pipe-line> is positioned absolutely via tailwind utilities — that
+   absolute positioning is also what establishes the containing block for the
+   .pipe-dot children. We must NOT override `position` here. */
+.pipe-line {
+  pointer-events: none;
+}
+.pipe-dot {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  margin-left: -4px;
+  background: #2dd4bf;
+  border-radius: 9999px;
+  box-shadow:
+    0 0 8px rgba(45, 212, 191, 0.9),
+    0 0 16px rgba(45, 212, 191, 0.5);
+  animation: pipe-travel 2.4s linear infinite;
+}
+.pipe-dot--delayed {
+  animation-delay: 1.2s;
+}
+@keyframes pipe-travel {
+  0% {
+    left: 0%;
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    left: 100%;
+    opacity: 1;
+  }
+  100% {
+    left: 100%;
+    opacity: 0;
+  }
+}
+
+/* Pipeline: MODEL central button — smooth color-breathing border */
+.pipe-model-pulse {
+  animation: pipe-model-breathe 2.8s ease-in-out infinite;
+}
+@keyframes pipe-model-breathe {
+  0%, 100% {
+    border-color: rgba(6, 182, 212, 0.45);
+    box-shadow:
+      0 0 12px rgba(6, 182, 212, 0.18),
+      inset 0 0 8px rgba(6, 182, 212, 0.08);
+  }
+  50% {
+    border-color: rgba(45, 212, 191, 0.95);
+    box-shadow:
+      0 0 22px rgba(45, 212, 191, 0.45),
+      inset 0 0 14px rgba(45, 212, 191, 0.22);
+  }
+}
+
 /* ===== Misc ===== */
 .confidence-high {
   color: #4ade80;
