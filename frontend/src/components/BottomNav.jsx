@@ -41,7 +41,11 @@ export default function BottomNav({ active, onChange, alertCount = 0 }) {
             >
               <div
                 className={`w-8 h-8 rounded-lg flex items-center justify-center relative ${
-                  isActive ? "neo-icon-active" : ""
+                  isActive
+                    ? "neo-icon-active"
+                    : it.id === "mic"
+                    ? "mic-nav-pulse"
+                    : ""
                 }`}
               >
                 <Icon className="w-5 h-5" strokeWidth={1.6} />
