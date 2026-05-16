@@ -18,6 +18,12 @@ const PATTERN_LABEL = {
 
 function EmployeeRow({ emp, patterns, onClick }) {
   const epats = patterns.filter((p) => p.employee_id === emp.employee_id);
+  // Dedupe by pattern type, count occurrences
+  const counts = {};
+  for (const p of epats) {
+    counts[p.pattern] = (counts[p.pattern] || 0) + 1;
+  }
+  const uniquePatterns = Object.entries(counts);
   return (
     <button
       onClick={() => onClick(emp)}
@@ -35,14 +41,15 @@ function EmployeeRow({ emp, patterns, onClick }) {
           <span className="text-slate-600">·</span>
           <span className="text-slate-400">{emp.department}</span>
         </div>
-        {epats.length > 0 && (
+        {uniquePatterns.length > 0 && (
           <div className="mt-1.5 flex flex-wrap gap-1">
-            {epats.map((p) => (
+            {uniquePatterns.map(([pattern, count]) => (
               <span
-                key={p.id}
+                key={pattern}
                 className="text-[9px] px-1.5 py-0.5 rounded-md bg-red-500/15 text-red-400"
               >
-                ! {PATTERN_LABEL[p.pattern] || p.pattern}
+                ! {PATTERN_LABEL[pattern] || pattern}
+                {count > 1 && <span className="opacity-60"> ×{count}</span>}
               </span>
             ))}
           </div>
@@ -137,8 +144,26 @@ export default function AgentsView() {
   const [selected, setSelected] = useState(null);
 
   useEffect(() => {
-    api.employees().then((d) => setEmployees(d.employees || []));
-    api.patterns().then((d) => setPatterns(d.patterns || []));
+    let cancelled = false;
+    const load = async (retry = 0) => {
+      try {
+        const emp = await api.employees();
+        const pat = await api.patterns();
+        if (cancelled) return;
+        setEmployees(emp.employees || []);
+        setPatterns(pat.patterns || []);
+        // If still empty and seed may not have completed yet — retry once
+        if ((emp.employees || []).length === 0 && retry < 2) {
+          setTimeout(() => load(retry + 1), 1200);
+        }
+      } catch {
+        if (retry < 2) setTimeout(() => load(retry + 1), 1500);
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
