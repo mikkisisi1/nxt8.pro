@@ -104,12 +104,14 @@ function TasksCard({ tasks, totalValue }) {
             <ChevronUp className="w-4 h-4 text-slate-400" />
           </div>
         </div>
-        <div className="text-[11px] tracking-tight space-y-2.5">
-          <AnimatePresence initial={false}>
-            {tasks.map((t, i) => (
-              <TaskRow key={t.key || t.id} index={i + 1} item={t} />
-            ))}
-          </AnimatePresence>
+        <div className="relative overflow-hidden h-[150px]">
+          <div className="text-[11px] tracking-tight space-y-2.5">
+            <AnimatePresence initial={false} mode="popLayout">
+              {tasks.map((t, i) => (
+                <TaskRow key={t.key || t.id} index={i + 1} item={t} />
+              ))}
+            </AnimatePresence>
+          </div>
         </div>
       </div>
       <div className="mt-5 flex items-center justify-between border-t border-white/5 pt-4">
