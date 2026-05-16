@@ -1,5 +1,33 @@
 # NXT8 — Release Notes
 
+## v1.2.0-hermes-coo — 2026-05-16
+
+**Status:** ✅ Hermes upgraded to COO Agent with function-calling and multi-tenant context.
+
+### What changed
+- New module **`backend/agents/hermes_coo.py`** — enhanced reasoning layer on top of `hermes_proxy` with strong COO system prompt, 4 function-calling tools and a backend dispatcher with real side-effects.
+- `POST /api/hermes/chat` replaced: now accepts `{messages, company_id?, user_id?, mode?, temperature?, model?}` and returns `{content, tool_calls[], iterations, company_id, ...}`.
+- `POST /api/hermes/daily-digest` added: `{company_id?, user_id, period?}` — triggers digest generation via the `generate_daily_digest` tool.
+- 4 tools implemented end-to-end (real DB writes/reads):
+  - `search_memory` → `MemoryEngine.search`
+  - `create_followup` → MongoDB collection `followups` (new)
+  - `detect_bottlenecks` → `diagnostics.summary` + open followups
+  - `generate_daily_digest` → 24h/7d aggregation of requests + followups + diagnostics
+- Multi-tenant ready: optional `company_id` (fallback `"default"`) propagated through prompts and persisted on followups.
+- Graceful fallback to DeepSeek when the Hermes gateway (:8642) is offline — endpoint stays available, tools just aren't auto-invoked in that mode.
+
+### Smoke tests (curl + standalone Python)
+- `GET  /api/hermes/health` → offline (gateway not started in preview), expected.
+- `POST /api/hermes/chat` → 200, COO-formatted response via DeepSeek fallback.
+- `POST /api/hermes/daily-digest` → 200, same path.
+- Standalone tool dispatcher: all 4 tools return `ok=True`; followup persisted in MongoDB, digest aggregated 72 recent requests / 1 open followup.
+
+### Known limitations
+- Tool calls only execute automatically when the Hermes gateway on :8642 is running (it supports OpenAI-style `tools`). DeepSeek fallback returns the COO answer but does not auto-invoke tools.
+- `company_id` is propagated but not yet schema-enforced on all collections (multi-tenant remains a P2 backlog item).
+
+---
+
 ## v1.1.0-hermes — 2026-05-16 (additive)
 
 **Status:** ✅ Module 15 (Hermes Agent) added without breaking pilot zero.

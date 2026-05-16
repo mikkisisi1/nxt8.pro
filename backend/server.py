@@ -43,6 +43,7 @@ from agents import diagnostics as diagnostics_agent  # noqa: E402
 from agents import skill_creator as skills_agent  # noqa: E402
 from agents import market_radar as market_agent  # noqa: E402
 from agents import hermes_proxy as hermes_agent  # noqa: E402
+from agents import hermes_coo as hermes_coo_agent  # noqa: E402
 from core.db import close_db, ensure_indexes, get_db  # noqa: E402
 from core.deepseek import get_deepseek  # noqa: E402
 
@@ -884,9 +885,17 @@ async def market_digests(limit: int = 10) -> Dict[str, Any]:
 
 class HermesChatRequest(BaseModel):
     messages: List[Dict[str, Any]] = Field(default_factory=list)
+    company_id: Optional[str] = None
+    user_id: Optional[str] = None
+    mode: str = "operational"
+    temperature: float = 0.3
     model: Optional[str] = None
-    stream: bool = False
-    temperature: float = 0.7
+
+
+class HermesDigestRequest(BaseModel):
+    company_id: Optional[str] = None
+    user_id: str
+    period: str = "daily"
 
 
 class HermesJobRequest(BaseModel):
@@ -904,8 +913,34 @@ async def hermes_health() -> Dict[str, Any]:
 
 @api.post("/hermes/chat")
 async def hermes_chat(req: HermesChatRequest) -> Dict[str, Any]:
-    payload = req.model_dump(exclude_none=True)
-    return await hermes_agent.chat(payload)
+    """Enhanced Hermes COO endpoint with tool-calling and multi-tenant context."""
+    return await hermes_coo_agent.enhanced_chat(
+        messages=req.messages,
+        company_id=req.company_id,
+        user_id=req.user_id,
+        mode=req.mode,
+        temperature=req.temperature,
+        model=req.model,
+    )
+
+
+@api.post("/hermes/daily-digest")
+async def hermes_daily_digest(req: HermesDigestRequest) -> Dict[str, Any]:
+    """Trigger an operational digest for a given recipient/company."""
+    seed = (
+        f"Сгенерируй {('недельный' if req.period == 'weekly' else 'сегодняшний')} "
+        f"operational digest для компании. Вызови tool generate_daily_digest с "
+        f"recipient_user_id='{req.user_id}', period='{req.period}', "
+        f"company_id='{req.company_id or 'default'}', затем оформи итог по формату "
+        f"(summary / что важно / действия / ожидаемый эффект)."
+    )
+    return await hermes_coo_agent.enhanced_chat(
+        messages=[{"role": "user", "content": seed}],
+        company_id=req.company_id,
+        user_id=req.user_id,
+        mode="operational",
+        temperature=0.3,
+    )
 
 
 @api.get("/hermes/jobs")

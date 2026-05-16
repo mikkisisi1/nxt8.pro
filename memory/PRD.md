@@ -1,8 +1,8 @@
 # NXT8 — Product Requirements Document
 
-**Version:** v1.1.0-hermes (additive over v1.0-pilot-zero)
+**Version:** v1.2.0-hermes-coo (additive over v1.1.0-hermes)
 **Released:** 2026-05-16
-**Status:** ✅ Module 15 Hermes Agent live. 41/41 backend + 28/28 frontend tests green. См. `CHANGELOG.md`, `ROADMAP.md`, `PILOT_ZERO.md`.
+**Status:** ✅ Hermes COO Agent live with function-calling tools (`search_memory`, `create_followup`, `detect_bottlenecks`, `generate_daily_digest`) + multi-tenant `company_id`. См. `CHANGELOG.md`, `ROADMAP.md`, `PILOT_ZERO.md`.
 
 ---
 
