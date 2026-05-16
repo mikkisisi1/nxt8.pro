@@ -37,6 +37,54 @@ export const api = {
 
   alerts: (limit = 20) => http.get(`/alerts?limit=${limit}`).then((r) => r.data),
 
+  // Cross-Department Coordinator
+  crossDeptCoordinate: (payload) =>
+    http.post("/cross-dept/coordinate", payload).then((r) => r.data),
+  crossDeptTasks: (limit = 20) =>
+    http.get(`/cross-dept/tasks?limit=${limit}`).then((r) => r.data),
+  crossDeptDetect: (query) =>
+    http
+      .get(`/cross-dept/detect?query=${encodeURIComponent(query)}`)
+      .then((r) => r.data),
+
+  // Diagnostics
+  diagnosticsScan: (params = {}) =>
+    http.post("/diagnostics/scan", null, { params }).then((r) => r.data),
+  diagnosticsList: (limit = 30) =>
+    http
+      .get(`/diagnostics/contradictions?limit=${limit}`)
+      .then((r) => r.data),
+  diagnosticsSummary: (window = 200) =>
+    http.get(`/diagnostics/summary?window=${window}`).then((r) => r.data),
+
+  // Skills
+  skillsScan: () => http.post("/skills/scan").then((r) => r.data),
+  skillsList: (enabled = false, limit = 100) =>
+    http
+      .get(`/skills?enabled=${enabled}&limit=${limit}`)
+      .then((r) => r.data),
+  skillsCreate: (payload) => http.post("/skills", payload).then((r) => r.data),
+  skillsToggle: (skill_id, enabled) =>
+    http
+      .post(`/skills/${skill_id}/toggle?enabled=${enabled}`)
+      .then((r) => r.data),
+
+  // Market Radar
+  marketSignals: (category, limit = 50) =>
+    http
+      .get(
+        `/market/signals?${category ? `category=${category}&` : ""}limit=${limit}`
+      )
+      .then((r) => r.data),
+  marketIngest: (payload) =>
+    http.post("/market/signals", payload).then((r) => r.data),
+  marketScan: (window_hours = 24) =>
+    http
+      .post(`/market/scan?window_hours=${window_hours}`)
+      .then((r) => r.data),
+  marketDigests: (limit = 10) =>
+    http.get(`/market/digests?limit=${limit}`).then((r) => r.data),
+
   voiceConverse: (blob, opts = {}) => {
     const fd = new FormData();
     const filename = opts.filename || "speech.webm";

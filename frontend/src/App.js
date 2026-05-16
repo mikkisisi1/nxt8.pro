@@ -9,6 +9,7 @@ import AgentsView from "./components/views/AgentsView";
 import MapView from "./components/views/MapView";
 import AlertsView from "./components/views/AlertsView";
 import MicView from "./components/views/MicView";
+import OpsView from "./components/views/OpsView";
 import api from "./lib/api";
 
 function App() {
@@ -56,6 +57,8 @@ function App() {
         return <AlertsView />;
       case "mic":
         return <MicView />;
+      case "ops":
+        return <OpsView />;
       case "home":
       default:
         return <HomeView />;

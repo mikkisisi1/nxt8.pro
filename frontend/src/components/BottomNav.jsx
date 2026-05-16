@@ -6,11 +6,13 @@ import {
   Map,
   Bell,
   Mic,
+  LayoutGrid,
 } from "lucide-react";
 
 const NAV_ITEMS = [
   { id: "home", label: "HOME", icon: Home },
   { id: "cmd", label: "CMD", icon: Terminal },
+  { id: "ops", label: "OPS", icon: LayoutGrid },
   { id: "agents", label: "AGENTS", icon: Users },
   { id: "map", label: "MAP", icon: Map },
   { id: "alerts", label: "ALERTS", icon: Bell, badge: true },
