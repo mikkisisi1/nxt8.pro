@@ -1,8 +1,8 @@
 # NXT8 — Product Requirements Document
 
-**Version:** 0.4 (10/10 modules + SSE + Ops Dashboard)
-**Last updated:** 2026-05-16
-**Status:** Все 10 модулей реализованы (backend+frontend), 38/38 backend tests + 21/21 ops dashboard tests passed
+**Version:** v1.0.0-pilot-zero
+**Released:** 2026-05-16
+**Status:** ✅ Production-ready for Pilot Zero deployment. См. также `CHANGELOG.md`, `ROADMAP.md`, `PILOT_ZERO.md`.
 
 ---
 
