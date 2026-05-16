@@ -1,8 +1,8 @@
 # NXT8 — Product Requirements Document
 
-**Version:** 0.3 (10/14 modules + SSE streaming)
+**Version:** 0.4 (10/10 modules + SSE + Ops Dashboard)
 **Last updated:** 2026-05-16
-**Status:** Все P1+P2 модули реализованы, LLM live через OpenRouter (deepseek-chat-v3-0324)
+**Status:** Все 10 модулей реализованы (backend+frontend), 38/38 backend tests + 21/21 ops dashboard tests passed
 
 ---
 
@@ -133,26 +133,30 @@ GET   /api/market/digests
 
 ## 7. Current state / test results
 
-- Backend: **38/38 pytest** pass (testing agent iter_3, всё через preview URL)
-- Frontend: streaming chat работает (token-by-token + animated caret), все 6 views, MicView с hold-to-talk
-- LLM: **LIVE** via OpenRouter primary (`deepseek/deepseek-chat-v3-0324`, logprobs ON) + DeepSeek direct fallback. typical latency 1.5–7 сек (3–7s для full chat, 1.5–3s для streaming first-token).
-- Voice: **LIVE** via Emergent Universal LLM Key — whisper-1 STT + tts-1 MP3
-- `/api/health` показывает `deepseek.active_provider`, `deepseek.providers[]`, `voice.enabled`
+- Backend: **38/38 pytest** pass (testing agent iter_3)
+- Frontend: **21/21 ops dashboard E2E** pass (testing agent iter_4) — Ops Dashboard + 4 drill-down панелей работают через реальный backend
+- 7 views: HOME, CMD (streaming chat), **OPS (cockpit + drill-down)**, AGENTS, MAP, ALERTS, MIC
+- LLM: **LIVE** via OpenRouter primary (`deepseek/deepseek-chat-v3-0324`, logprobs ON) + DeepSeek direct fallback. typical latency 1.5–7s
+- Voice: **LIVE** via Emergent Universal Key — whisper-1 STT + tts-1 MP3
 - Hourly scheduler: ROI snapshot + session cleanup + diagnostics scan + skill discovery
 - Seed: 6 corporate memories, 4 employees, 4 deals, 5 market signals, weak patterns для Junior Lee
 
 ## 8. Backlog / next tasks
 
-**P3:**
-- Prometheus + Grafana observability (port `install_finalize.sh`)
+**P2:**
+- Observability layer: Prometheus + Grafana (port `install_finalize.sh`)
 - Multi-tenant company scoping
 - Slack / WhatsApp channel adapters
-- Voice Activity Detection (auto start/stop based on silence)
-- Frontend views для Cross-Dept / Diagnostics / Skills / Market (сейчас API-only)
+
+**P3 (polish, from testing agent code-review):**
+- Toast/error UI на failure ops-сканов (diagnostics/skills/market)
+- Submit-on-Enter в CrossDeptPanel textarea
+- Refactor MarketPanel CAT_COLOR class-splitting (хрупкий парсинг)
+- useEffect dependency `[sub]` в OpsView заменить на `[]` (мелкая семантика)
 
 ## 9. Personas
 
-- **Operator / Manager** — uses HOME (tasks), AGENTS (mentor reviews), MAP (ROI), ALERTS
-- **End user / employee** — uses CMD (chat) for knowledge questions, task scheduling
-- **Executive** — MAP view shows hourly ROI, cost-by-agent, trend
-- **Admin / Eng** — uses /api/seed, /api/requests audit log, /api/health
+- **Operator / Manager** — uses HOME (tasks), OPS (cockpit), AGENTS (mentor), MAP (ROI), ALERTS
+- **End user / employee** — uses CMD (chat) для knowledge, MIC для voice
+- **Executive** — OPS dashboard (cross-dept synthesis, market digest) + MAP (ROI trend)
+- **Admin / Eng** — uses /api/seed, /api/requests audit log, /api/health, OPS/Diagnostics панель
