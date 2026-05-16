@@ -252,6 +252,9 @@ body {
 }
 
 /* ===== Misc ===== */
+#emergent-badge {
+  display: none !important;
+}
 .confidence-high {
   color: #4ade80;
 }
