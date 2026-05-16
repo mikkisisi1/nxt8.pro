@@ -1,0 +1,5 @@
+/* App.css — overrides only; main styles live in index.css */
+.App {
+  width: 100%;
+  min-height: 100vh;
+}

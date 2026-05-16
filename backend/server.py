@@ -1,0 +1,500 @@
+"""
+NXT8 backend — single FastAPI process exposing all agents as /api endpoints.
+
+All 10 ТЗ MVP components live in this process:
+- orchestrator   — POST /api/chat, GET /api/requests
+- memory         — /api/memory/{store,search,session}
+- reliability    — embedded inside chat pipeline (POST /api/reliability/assess available)
+- mentor         — /api/mentor/{employees,performance,patterns,recommend}
+- roi            — /api/roi/{costs,deals,interactions,dashboard}
+- alerts         — /api/alerts
+- voice          — /api/voice (stub returning 'coming soon')
+- system         — /api/health, /api/seed
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+import uuid
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from dotenv import load_dotenv
+from fastapi import APIRouter, FastAPI, HTTPException
+from pydantic import BaseModel, Field
+from starlette.middleware.cors import CORSMiddleware
+
+ROOT_DIR = Path(__file__).parent
+load_dotenv(ROOT_DIR / ".env")
+
+from agents import mentor as mentor_agent  # noqa: E402
+from agents import memory as memory_agent  # noqa: E402
+from agents import orchestrator as orchestrator_agent  # noqa: E402
+from agents import reliability as reliability_agent  # noqa: E402
+from agents import roi as roi_agent  # noqa: E402
+from core.db import close_db, ensure_indexes, get_db  # noqa: E402
+from core.deepseek import get_deepseek  # noqa: E402
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger("nxt8.server")
+
+
+# ---------- background scheduler ----------
+
+
+async def _roi_scheduler() -> None:
+    """Hourly ROI snapshot + session cleanup (ТЗ near-real-time cadence)."""
+    while True:
+        try:
+            await roi_agent.calculate_hourly_roi()
+            await memory_agent.get_memory().cleanup_expired_sessions()
+        except Exception as e:  # noqa: BLE001
+            logger.exception("scheduler tick failed: %s", e)
+        await asyncio.sleep(3600)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    await ensure_indexes()
+    deepseek = get_deepseek()
+    logger.info("DeepSeek mock_mode=%s model=%s", deepseek.mock_mode, deepseek.model)
+    task = asyncio.create_task(_roi_scheduler())
+    try:
+        yield
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        close_db()
+
+
+app = FastAPI(title="NXT8 API", version="1.0.0", lifespan=lifespan)
+api = APIRouter(prefix="/api")
+
+
+# =====================================================================
+# Schemas
+# =====================================================================
+
+
+class ChatRequest(BaseModel):
+    user_id: str = "anonymous"
+    session_id: Optional[str] = None
+    message: str
+    channel: str = "web"
+    context: Dict[str, Any] = Field(default_factory=dict)
+
+
+class MemoryStoreRequest(BaseModel):
+    content: str
+    type: str = "corporate"  # corporate | episodic | semantic
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class MemorySearchRequest(BaseModel):
+    query: str
+    top_k: int = 5
+    type: Optional[str] = None
+
+
+class EmployeeRequest(BaseModel):
+    employee_id: Optional[str] = None
+    name: str
+    department: str = "general"
+    level: str = "junior"
+    experience_months: int = 0
+    hire_date: Optional[str] = None
+    manager_id: Optional[str] = None
+    skills: List[str] = Field(default_factory=list)
+
+
+class PerformanceRequest(BaseModel):
+    employee_id: str
+    period_start: Optional[str] = None
+    period_end: Optional[str] = None
+    accuracy: float = 0.0
+    speed: float = 1.0
+    escalation_rate: float = 0.0
+    error_repeat: int = 0
+    tasks_completed: int = 0
+    tasks_reviewed: int = 0
+
+
+class DealRequest(BaseModel):
+    deal_id: str
+    value_usd: float
+    team: str
+    closed_at: Optional[str] = None
+
+
+class InteractionRequest(BaseModel):
+    deal_id: str
+    agent: str
+    interaction_type: str = "touch"
+
+
+class ReliabilityRequest(BaseModel):
+    response: str
+    deepseek_confidence: float = 0.7
+    source: str = "deepseek"
+    evidence_count: int = 1
+    past_responses: List[str] = Field(default_factory=list)
+    memory_context: List[str] = Field(default_factory=list)
+
+
+# =====================================================================
+# System
+# =====================================================================
+
+
+@api.get("/")
+async def root() -> Dict[str, Any]:
+    return {
+        "service": "NXT8",
+        "version": "1.0.0",
+        "modules": ["orchestrator", "memory", "reliability", "mentor", "roi", "voice(stub)"],
+    }
+
+
+@api.get("/health")
+async def health() -> Dict[str, Any]:
+    db = get_db()
+    try:
+        await db.command("ping")
+        mongo_ok = True
+    except Exception:
+        mongo_ok = False
+    ds = get_deepseek()
+    return {
+        "status": "ok" if mongo_ok else "degraded",
+        "mongo": mongo_ok,
+        "deepseek": {"mock_mode": ds.mock_mode, "model": ds.model},
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@api.post("/seed")
+async def seed_demo() -> Dict[str, Any]:
+    """Insert demo corporate memory + employees + deals — for first WOW screen."""
+    mem = memory_agent.get_memory()
+    db = get_db()
+
+    # idempotent
+    existing = await db.memories.count_documents({})
+    if existing > 5:
+        return {"status": "already_seeded", "memories": existing}
+
+    corporate_docs = [
+        ("Политика возвратов: возврат возможен в течение 14 дней с момента покупки при наличии чека.",
+         {"department": "support", "priority": "high"}),
+        ("Скидка для корпоративных клиентов от 100 пользователей — 15%, от 500 — 25%.",
+         {"department": "sales", "priority": "high"}),
+        ("План найма Q1: 12 инженеров, 4 продакт-менеджера, 2 дизайнера.",
+         {"department": "hr", "priority": "medium"}),
+        ("Текущий ARR компании: $4.8M. Целевой ARR на конец года: $7.5M.",
+         {"department": "finance", "priority": "critical"}),
+        ("NXT8 — AI-операционная система. Ядро на DeepSeek, единый интерфейс для всех корпоративных AI задач.",
+         {"department": "product", "priority": "high"}),
+        ("SLA для enterprise клиентов: 99.9% uptime, ответ в течение 15 минут.",
+         {"department": "support", "priority": "high"}),
+    ]
+    for content, meta in corporate_docs:
+        await mem.store_memory(content, memory_type="corporate", metadata=meta)
+
+    employees = [
+        {"employee_id": "emp_alex", "name": "Alex Morgan", "department": "sales",
+         "level": "senior", "experience_months": 38, "skills": ["enterprise", "negotiation"]},
+        {"employee_id": "emp_carla", "name": "Carla Reyes", "department": "support",
+         "level": "mid", "experience_months": 14, "skills": ["technical", "deescalation"]},
+        {"employee_id": "emp_mike", "name": "Mike Chen", "department": "engineering",
+         "level": "lead", "experience_months": 72, "skills": ["python", "architecture"]},
+        {"employee_id": "emp_jr", "name": "Junior Lee", "department": "support",
+         "level": "junior", "experience_months": 3, "skills": []},
+    ]
+    for e in employees:
+        await mentor_agent.upsert_employee(e)
+
+    # performance for junior — intentionally weak to trigger patterns
+    base = datetime.now(timezone.utc)
+    for i in range(4):
+        await mentor_agent.record_performance({
+            "employee_id": "emp_jr",
+            "period_start": (base - timedelta(weeks=i + 1)).isoformat(),
+            "period_end": (base - timedelta(weeks=i)).isoformat(),
+            "accuracy": 0.55 - i * 0.02,
+            "speed": 1.7,
+            "escalation_rate": 0.42,
+            "error_repeat": 2,
+            "tasks_completed": 30,
+            "tasks_reviewed": 18,
+        })
+    # healthy performance for senior
+    for i in range(4):
+        await mentor_agent.record_performance({
+            "employee_id": "emp_alex",
+            "period_start": (base - timedelta(weeks=i + 1)).isoformat(),
+            "period_end": (base - timedelta(weeks=i)).isoformat(),
+            "accuracy": 0.93,
+            "speed": 0.8,
+            "escalation_rate": 0.04,
+            "error_repeat": 0,
+            "tasks_completed": 45,
+            "tasks_reviewed": 2,
+        })
+
+    # demo deals + interactions
+    for i, value in enumerate([2400, 600, 1800, 950]):
+        deal_id = f"deal_demo_{i}"
+        # interactions BEFORE the deal close (1-4 days before)
+        for day, agent in enumerate(["orchestrator", "memory", "orchestrator"]):
+            await db.interactions.insert_one({
+                "id": str(uuid.uuid4()),
+                "deal_id": deal_id,
+                "agent": agent,
+                "interaction_type": "touch",
+                "interaction_time": (base - timedelta(days=day + 1, hours=i)).isoformat(),
+                "attributed_revenue": None,
+            })
+        await roi_agent.record_deal(
+            deal_id=deal_id,
+            value_usd=float(value),
+            team="sales",
+            closed_at=(base - timedelta(hours=i)).isoformat(),
+        )
+
+    # synthetic costs over last hour to make ROI non-zero
+    for _ in range(40):
+        await roi_agent.record_api_cost("orchestrator", tokens=15000)
+    for _ in range(8):
+        await roi_agent.record_escalation_cost("support", minutes=5.0)
+
+    # detect weak patterns for junior
+    await mentor_agent.detect_weak_patterns("emp_jr")
+
+    # generate first roi snapshot
+    await roi_agent.calculate_hourly_roi()
+
+    return {
+        "status": "seeded",
+        "memories": len(corporate_docs),
+        "employees": len(employees),
+        "deals": 4,
+    }
+
+
+# =====================================================================
+# Orchestrator / chat
+# =====================================================================
+
+
+@api.post("/chat")
+async def chat(req: ChatRequest) -> Dict[str, Any]:
+    session_id = req.session_id or f"sess_{uuid.uuid4().hex[:12]}"
+    return await orchestrator_agent.route(
+        user_id=req.user_id,
+        session_id=session_id,
+        message=req.message,
+        channel=req.channel,
+        context=req.context,
+    )
+
+
+@api.get("/requests")
+async def list_requests(limit: int = 20) -> List[Dict[str, Any]]:
+    return await orchestrator_agent.list_recent_requests(limit=limit)
+
+
+@api.get("/sessions/{session_id}")
+async def get_session(session_id: str) -> Dict[str, Any]:
+    msgs = await memory_agent.get_memory().get_session(session_id, limit=200)
+    return {"session_id": session_id, "messages": msgs}
+
+
+# =====================================================================
+# Memory
+# =====================================================================
+
+
+@api.post("/memory/store")
+async def memory_store(req: MemoryStoreRequest) -> Dict[str, Any]:
+    mid = await memory_agent.get_memory().store_memory(
+        content=req.content, memory_type=req.type, metadata=req.metadata
+    )
+    return {"id": mid, "status": "stored"}
+
+
+@api.post("/memory/search")
+async def memory_search(req: MemorySearchRequest) -> Dict[str, Any]:
+    res = await memory_agent.get_memory().search(
+        query=req.query, top_k=req.top_k, memory_type=req.type
+    )
+    return {"count": len(res), "results": res}
+
+
+@api.get("/memory/list")
+async def memory_list(type: Optional[str] = None, limit: int = 100) -> Dict[str, Any]:
+    items = await memory_agent.get_memory().list_memories(memory_type=type, limit=limit)
+    return {"count": len(items), "items": items}
+
+
+# =====================================================================
+# Reliability (standalone, for external integration)
+# =====================================================================
+
+
+@api.post("/reliability/assess")
+async def reliability_assess(req: ReliabilityRequest) -> Dict[str, Any]:
+    rel = reliability_agent.assess(
+        response=req.response,
+        deepseek_confidence=req.deepseek_confidence,
+        source=req.source,
+        evidence_count=req.evidence_count,
+        past_responses=req.past_responses,
+        memory_context=req.memory_context,
+    )
+    return {
+        "score": rel.score,
+        "level": rel.level,
+        "should_escalate": rel.should_escalate,
+        "has_contradiction": rel.has_contradiction,
+        "contradictions": rel.contradictions,
+        "verification_status": rel.verification_status,
+        "verification_ratio": rel.verification_ratio,
+        "signals": rel.signals,
+    }
+
+
+# =====================================================================
+# Mentor
+# =====================================================================
+
+
+@api.post("/mentor/employees")
+async def mentor_upsert_employee(req: EmployeeRequest) -> Dict[str, Any]:
+    return await mentor_agent.upsert_employee(req.model_dump())
+
+
+@api.get("/mentor/employees")
+async def mentor_list_employees() -> Dict[str, Any]:
+    emps = await mentor_agent.list_employees()
+    return {"count": len(emps), "employees": emps}
+
+
+@api.get("/mentor/employees/{employee_id}")
+async def mentor_employee_summary(employee_id: str) -> Dict[str, Any]:
+    return await mentor_agent.employee_summary(employee_id)
+
+
+@api.post("/mentor/performance")
+async def mentor_record_performance(req: PerformanceRequest) -> Dict[str, Any]:
+    return await mentor_agent.record_performance(req.model_dump())
+
+
+@api.post("/mentor/detect/{employee_id}")
+async def mentor_detect_patterns(employee_id: str) -> Dict[str, Any]:
+    patterns = await mentor_agent.detect_weak_patterns(employee_id)
+    return {"employee_id": employee_id, "patterns": patterns}
+
+
+@api.get("/mentor/patterns")
+async def mentor_list_patterns(limit: int = 50) -> Dict[str, Any]:
+    items = await mentor_agent.list_open_patterns(limit=limit)
+    return {"count": len(items), "patterns": items}
+
+
+@api.get("/mentor/recommend/{employee_id}/{pattern}")
+async def mentor_recommendation(employee_id: str, pattern: str) -> Dict[str, Any]:
+    return await mentor_agent.generate_recommendation(employee_id, pattern)
+
+
+# =====================================================================
+# ROI / Profit Intelligence
+# =====================================================================
+
+
+@api.get("/roi/dashboard")
+async def roi_dashboard() -> Dict[str, Any]:
+    return await roi_agent.dashboard_summary()
+
+
+@api.get("/roi/current")
+async def roi_current() -> Dict[str, Any]:
+    return await roi_agent.calculate_hourly_roi()
+
+
+@api.get("/roi/trend")
+async def roi_trend(hours: int = 24) -> Dict[str, Any]:
+    items = await roi_agent.roi_trend(hours=hours)
+    return {"count": len(items), "items": items}
+
+
+@api.post("/roi/deals")
+async def roi_create_deal(req: DealRequest) -> Dict[str, Any]:
+    return await roi_agent.record_deal(
+        deal_id=req.deal_id, value_usd=req.value_usd, team=req.team, closed_at=req.closed_at
+    )
+
+
+@api.post("/roi/interactions")
+async def roi_record_interaction(req: InteractionRequest) -> Dict[str, Any]:
+    await roi_agent.record_interaction(
+        deal_id=req.deal_id, agent=req.agent, interaction_type=req.interaction_type
+    )
+    return {"status": "recorded"}
+
+
+# =====================================================================
+# Alerts
+# =====================================================================
+
+
+@api.get("/alerts")
+async def list_alerts(limit: int = 20) -> Dict[str, Any]:
+    items = await orchestrator_agent.list_alerts(limit=limit)
+    return {"count": len(items), "alerts": items}
+
+
+# =====================================================================
+# Voice (stub for MVP — per user decision 5b)
+# =====================================================================
+
+
+@api.post("/voice/stt")
+async def voice_stt() -> Dict[str, Any]:
+    return {
+        "status": "coming_soon",
+        "message": "Voice integration arrives in next phase (Whisper + DeepSeek pipeline).",
+    }
+
+
+@api.post("/voice/tts")
+async def voice_tts() -> Dict[str, Any]:
+    return {
+        "status": "coming_soon",
+        "message": "TTS will be enabled with the voice module rollout.",
+    }
+
+
+# =====================================================================
+# Mount + CORS
+# =====================================================================
+
+
+app.include_router(api)
+app.add_middleware(
+    CORSMiddleware,
+    allow_credentials=True,
+    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
