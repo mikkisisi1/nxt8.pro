@@ -117,7 +117,7 @@ async def scan_and_register() -> Dict[str, Any]:
         skill_clean = {k: v for k, v in skill.items() if k != "_id"}
         created.append(skill_clean)
 
-    return {"created": len(created), "skills": created}
+    return {"created": len(created), "count": len(created), "skills": created}
 
 
 async def list_skills(only_enabled: bool = False, limit: int = 100) -> List[Dict[str, Any]]:

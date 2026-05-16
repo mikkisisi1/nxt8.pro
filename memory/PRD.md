@@ -1,8 +1,8 @@
 # NXT8 — Product Requirements Document
 
-**Version:** 0.2 (MVP + Voice module)
+**Version:** 0.3 (10/14 modules + SSE streaming)
 **Last updated:** 2026-05-16
-**Status:** MVP backend + UI live · Voice module (Whisper STT + OpenAI TTS) integrated · DeepSeek still in mock fallback (HTTP 402 — user is topping up balance)
+**Status:** Все P1+P2 модули реализованы, LLM live через OpenRouter (deepseek-chat-v3-0324)
 
 ---
 
@@ -54,24 +54,28 @@ Single FastAPI process on :8001 with /api prefix routes; React on :3000.
 └── index.css                 LED-matrix bg, glass-card, glow, neo-btn
 ```
 
-## 4. Implemented modules (8/14)
+## 4. Implemented modules (12/14)
 
-- ✅ **Core** — FastAPI, MongoDB, supervisor (no PostgreSQL/Redis — emergent constraint)
-- ✅ **Orchestrator** — `POST /api/chat` intent-routing pipeline
-- ✅ **Memory** — short-term (Mongo sessions, 24h cleanup) + long-term (TF-IDF cosine, ranking via recency/importance)
-- ✅ **Reliability** — confidence weighted (deepseek 0.5 / source 0.2 / evidence 0.2 / consistency 0.1); contradiction & hallucination check via TF-IDF cosine
-- ✅ **Mentor** — 5 levels (junior/mid/senior/lead/strategist), targets/weights per level, weak patterns (low_accuracy/high_escalation/repeating_errors)
-- ✅ **ROI** — cost tracking ($0.50/1M tokens, $0.05/cpu-hour, $35/h escalation), revenue attribution `1/(days+1)` over 7 days, hourly snapshots, alerts
-- ✅ **Voice** *(2026-05-16)* — Whisper STT + OpenAI TTS via Emergent Universal LLM Key, one-shot `/voice/converse` STT→chat→TTS loop, hold-to-talk MicView with waveform meter
-- ✅ **UI** — 6 views, 1:1 mobile mockup port, data-testids on every interactive element
+- ✅ **Core** — FastAPI, MongoDB, supervisor
+- ✅ **Orchestrator** — `POST /api/chat` intent-routing pipeline + `POST /api/chat/stream` SSE
+- ✅ **Memory** — short-term + long-term TF-IDF semantic search
+- ✅ **Reliability** — confidence weighted + contradiction + hallucination check
+- ✅ **Mentor** — 5 levels, weak patterns, recommendations
+- ✅ **ROI** — cost tracking, revenue attribution, hourly snapshots
+- ✅ **Voice** *(2026-05-16)* — Whisper STT + OpenAI TTS via Emergent key, `/voice/converse` one-shot loop, hold-to-talk MicView
+- ✅ **LLM Provider chain** *(2026-05-16)* — OpenRouter primary (`deepseek/deepseek-chat-v3-0324` with logprobs) → DeepSeek direct fallback → mock
+- ✅ **Cross-Department Coordinator** *(2026-05-16)* — `/api/cross-dept/{detect,coordinate,tasks}` heuristic dept-detection + LLM synthesis
+- ✅ **Diagnostics** *(2026-05-16)* — `/api/diagnostics/{scan,contradictions,summary}` TF-IDF contradiction classifier on request audit log; hourly scheduler tick
+- ✅ **Skill Creator** *(2026-05-16)* — `/api/skills/{scan,*,/{id}/toggle}` auto-discovers repeating prompt patterns ≥3 hits @ confidence ≥0.75; manual CRUD
+- ✅ **Market Radar** *(2026-05-16)* — `/api/market/{signals,scan,digests}` ingest market signals + DeepSeek-powered intelligence digest
+- ✅ **UI** — 6 views, streaming chat with live token-by-token render + caret animation
 
 ## 5. Deferred to next phases
 
-- ⏳ Cross-Department Coordinator (file `install_cross_dept.sh`)
-- ⏳ Skill Creator (file `install_skill_creator.sh`)
-- ⏳ Market Radar (file `install_market_radar.sh`)
-- ⏳ Diagnostics / contradiction classifier (file `install_diagnostics.sh`)
 - ⏳ Production observability (Prometheus + Grafana from `install_finalize.sh`)
+- ⏳ Multi-tenant company scoping
+- ⏳ Slack / WhatsApp channel adapters
+- ⏳ Voice Activity Detection (auto start/stop on silence) for truly "invisible" voice
 
 ## 6. API surface (verified)
 
@@ -103,32 +107,48 @@ POST  /api/roi/interactions
 
 GET   /api/alerts
 
+POST  /api/chat/stream      (SSE: meta/delta/done frames)
 POST  /api/voice/stt        (multipart audio → Whisper transcript)
 POST  /api/voice/tts        (JSON {text,voice,speed} → audio/mpeg MP3)
-POST  /api/voice/converse   (multipart audio → STT→orchestrator→TTS, audio_b64 mp3 in JSON)
+POST  /api/voice/converse   (STT→orchestrator→TTS, audio_b64 mp3)
+
+POST  /api/cross-dept/coordinate
+GET   /api/cross-dept/detect?query=...
+GET   /api/cross-dept/tasks
+
+POST  /api/diagnostics/scan
+GET   /api/diagnostics/contradictions
+GET   /api/diagnostics/summary
+
+POST  /api/skills/scan
+GET   /api/skills?enabled=
+POST  /api/skills
+POST  /api/skills/{id}/toggle?enabled=
+
+POST  /api/market/signals
+GET   /api/market/signals?category=
+POST  /api/market/scan?window_hours=
+GET   /api/market/digests
 ```
 
 ## 7. Current state / test results
 
-- Backend: **25/25 pytest** pass (testing agent iter_2, re-run after OpenRouter switch)
-- Frontend: 100% of required flows verified, all 6 views render; MicView wired with MediaRecorder
-- LLM: **LIVE** via OpenRouter primary (`deepseek/deepseek-chat-v3-0324`) with direct DeepSeek fallback. Real logprob-based confidence scoring (no heuristic). Typical latency 3-7 sec.
-- Voice: **LIVE** via Emergent Universal LLM Key (`EMERGENT_LLM_KEY`), whisper-1 STT + tts-1 MP3 output verified end-to-end
-- `/api/health` exposes `deepseek.active_provider` and `deepseek.providers` for diagnostics
-- Seed produces 6 corporate memories, 4 employees, 4 deals, weak patterns for Junior Lee
+- Backend: **38/38 pytest** pass (testing agent iter_3, всё через preview URL)
+- Frontend: streaming chat работает (token-by-token + animated caret), все 6 views, MicView с hold-to-talk
+- LLM: **LIVE** via OpenRouter primary (`deepseek/deepseek-chat-v3-0324`, logprobs ON) + DeepSeek direct fallback. typical latency 1.5–7 сек (3–7s для full chat, 1.5–3s для streaming first-token).
+- Voice: **LIVE** via Emergent Universal LLM Key — whisper-1 STT + tts-1 MP3
+- `/api/health` показывает `deepseek.active_provider`, `deepseek.providers[]`, `voice.enabled`
+- Hourly scheduler: ROI snapshot + session cleanup + diagnostics scan + skill discovery
+- Seed: 6 corporate memories, 4 employees, 4 deals, 5 market signals, weak patterns для Junior Lee
 
 ## 8. Backlog / next tasks
 
-**P1:**
-- Cross-Department Coordinator (port `install_cross_dept.sh` to internal module)
-- Diagnostics module (contradiction classifier on logs)
-
-**P2:**
-- Skill Creator + Market Radar (self-improvement loop)
-- Grafana dashboards / Prometheus metrics
+**P3:**
+- Prometheus + Grafana observability (port `install_finalize.sh`)
 - Multi-tenant company scoping
 - Slack / WhatsApp channel adapters
-- Voice activity detection (auto start/stop based on silence) — make voice UI fully "invisible"
+- Voice Activity Detection (auto start/stop based on silence)
+- Frontend views для Cross-Dept / Diagnostics / Skills / Market (сейчас API-only)
 
 ## 9. Personas
 
