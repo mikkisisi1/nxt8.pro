@@ -33,6 +33,7 @@ class DeepSeekClient:
         ).rstrip("/")
         self.model: str = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
         self.mock_mode: bool = self.api_key.lower() in PLACEHOLDER_KEYS
+        self.last_error: Optional[str] = None  # last live API error for diagnostics
 
         if self.mock_mode:
             logger.warning(
@@ -75,10 +76,23 @@ class DeepSeekClient:
                 )
                 r.raise_for_status()
                 data = r.json()
+        except httpx.HTTPStatusError as e:
+            status = e.response.status_code if e.response is not None else "?"
+            reason = {
+                401: "unauthorized (invalid DEEPSEEK_API_KEY)",
+                402: "payment_required (top-up DeepSeek account balance)",
+                429: "rate_limited",
+                500: "deepseek_server_error",
+            }.get(status, f"http_{status}")
+            self.last_error = reason
+            logger.error("DeepSeek call failed (%s) — falling back to mock", reason)
+            return self._mock_response(messages, note=reason)
         except httpx.HTTPError as e:
-            logger.error("DeepSeek call failed: %s — falling back to mock", e)
-            return self._mock_response(messages, note=f"deepseek_error: {e}")
+            self.last_error = f"network_error: {e}"
+            logger.error("DeepSeek network error: %s — falling back to mock", e)
+            return self._mock_response(messages, note=self.last_error)
 
+        self.last_error = None
         return self._parse(data)
 
     def _parse(self, data: Dict[str, Any]) -> Dict[str, Any]:

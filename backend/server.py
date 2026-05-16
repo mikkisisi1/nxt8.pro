@@ -178,7 +178,12 @@ async def health() -> Dict[str, Any]:
     return {
         "status": "ok" if mongo_ok else "degraded",
         "mongo": mongo_ok,
-        "deepseek": {"mock_mode": ds.mock_mode, "model": ds.model},
+        "deepseek": {
+            "mock_mode": ds.mock_mode,
+            "model": ds.model,
+            "last_error": ds.last_error,
+            "live": ds.last_error is None and not ds.mock_mode,
+        },
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
