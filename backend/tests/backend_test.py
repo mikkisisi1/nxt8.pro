@@ -72,20 +72,21 @@ def test_seed_idempotent(client, _seed):
 def test_chat_returns_mock_response(client):
     session_id = f"sess_{uuid.uuid4().hex[:10]}"
     payload = {"user_id": "tester", "session_id": session_id, "message": "Привет, скажи политику возвратов"}
-    r = client.post(f"{API}/chat", json=payload, timeout=30)
+    r = client.post(f"{API}/chat", json=payload, timeout=200)
     assert r.status_code == 200, r.text
     d = r.json()
     for key in ["request_id", "content", "intent", "confidence", "confidence_level",
                 "should_escalate", "verification_status", "signals", "latency_ms", "mock"]:
         assert key in d, f"missing key {key} in chat response"
-    assert d["mock"] is True
+    assert isinstance(d["mock"], bool)
     assert isinstance(d["confidence"], (int, float))
+    assert d["content"]  # non-empty whether live or mock
 
 
 def test_session_persistence(client):
     session_id = f"sess_{uuid.uuid4().hex[:10]}"
     msg = "Что у нас по ARR компании?"
-    r = client.post(f"{API}/chat", json={"user_id": "u1", "session_id": session_id, "message": msg}, timeout=30)
+    r = client.post(f"{API}/chat", json={"user_id": "u1", "session_id": session_id, "message": msg}, timeout=200)
     assert r.status_code == 200
     # small wait for write
     time.sleep(0.3)

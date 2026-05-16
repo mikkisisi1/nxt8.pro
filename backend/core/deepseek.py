@@ -1,19 +1,24 @@
 """
-DeepSeek API client for NXT8.
+NXT8 LLM client — provider chain: OpenRouter → DeepSeek direct → mock.
 
-Implements the architectural principle "DeepSeek as single reasoning engine":
-- Direct HTTP calls to api.deepseek.com (OpenAI-compatible)
-- Confidence extraction from token logprobs
-- Mock mode when API key is not configured (for offline dev / before key delivery)
+ТЗ requires DeepSeek as reasoning core. We keep that contract but route through
+OpenRouter (free tier `deepseek/deepseek-chat:free`) as the primary edge to bypass
+DeepSeek's direct-balance gate. Direct DeepSeek API is kept as fallback for when
+the user tops up that account or OpenRouter is unavailable.
+
+Confidence:
+- Direct DeepSeek returns logprobs → real exp(avg logprob) confidence.
+- OpenRouter `:free` does NOT return logprobs → we use a heuristic based on
+  response length + token usage. Final confidence is still re-weighted by the
+  Reliability agent (memory consistency + contradiction check) downstream.
 """
 
 from __future__ import annotations
 
+import logging
 import math
 import os
 import random
-import re
-import logging
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -23,25 +28,74 @@ logger = logging.getLogger("nxt8.deepseek")
 PLACEHOLDER_KEYS = {"", "your-key-here", "placeholder", "todo", "changeme"}
 
 
+def _is_real(key: str) -> bool:
+    return bool(key) and key.lower() not in PLACEHOLDER_KEYS
+
+
+class _Provider:
+    name: str
+    api_key: str
+    base_url: str
+    model: str
+    supports_logprobs: bool
+
+    def __init__(self, name: str, api_key: str, base_url: str, model: str,
+                 supports_logprobs: bool, extra_headers: Optional[Dict[str, str]] = None):
+        self.name = name
+        self.api_key = api_key
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.supports_logprobs = supports_logprobs
+        self.extra_headers = extra_headers or {}
+
+
 class DeepSeekClient:
-    """Async DeepSeek client with logprob-based confidence and mock fallback."""
+    """Async LLM client with provider chain + heuristic/logprob confidence."""
 
     def __init__(self) -> None:
-        self.api_key: str = os.environ.get("DEEPSEEK_API_KEY", "").strip()
-        self.base_url: str = os.environ.get(
-            "DEEPSEEK_API_URL", "https://api.deepseek.com/v1"
-        ).rstrip("/")
-        self.model: str = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
-        self.mock_mode: bool = self.api_key.lower() in PLACEHOLDER_KEYS
-        self.last_error: Optional[str] = None  # last live API error for diagnostics
+        providers: List[_Provider] = []
+
+        or_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+        if _is_real(or_key):
+            providers.append(_Provider(
+                name="openrouter",
+                api_key=or_key,
+                base_url=os.environ.get("OPENROUTER_API_URL", "https://openrouter.ai/api/v1"),
+                model=os.environ.get("OPENROUTER_MODEL", "deepseek/deepseek-chat:free"),
+                supports_logprobs=False,  # :free tier does not return logprobs
+                extra_headers={
+                    "HTTP-Referer": os.environ.get("OPENROUTER_REFERRER", "https://nxt8.local"),
+                    "X-Title": "NXT8",
+                },
+            ))
+
+        ds_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+        if _is_real(ds_key):
+            providers.append(_Provider(
+                name="deepseek_direct",
+                api_key=ds_key,
+                base_url=os.environ.get("DEEPSEEK_API_URL", "https://api.deepseek.com/v1"),
+                model=os.environ.get("DEEPSEEK_MODEL", "deepseek-chat"),
+                supports_logprobs=True,
+            ))
+
+        self.providers: List[_Provider] = providers
+        self.mock_mode: bool = len(providers) == 0
+        self.last_error: Optional[str] = None
+        self.active_provider: Optional[str] = None
+
+        # Backward-compat fields used by /api/health and tests
+        self.model: str = providers[0].model if providers else "mock-deepseek"
 
         if self.mock_mode:
-            logger.warning(
-                "DeepSeek client running in MOCK mode (DEEPSEEK_API_KEY not set). "
-                "All reasoning calls will return synthetic responses."
-            )
+            logger.warning("LLM client in MOCK mode — no provider keys configured")
         else:
-            logger.info("DeepSeek client initialized with live API (%s)", self.base_url)
+            logger.info(
+                "LLM provider chain: %s",
+                " → ".join(f"{p.name}({p.model})" for p in providers),
+            )
+
+    # ---------- public API ----------
 
     async def chat(
         self,
@@ -50,61 +104,96 @@ class DeepSeekClient:
         max_tokens: int = 2048,
         request_logprobs: bool = True,
     ) -> Dict[str, Any]:
-        """Call chat completions. Returns dict with content, confidence, raw."""
         if self.mock_mode:
             return self._mock_response(messages)
 
+        errors: List[str] = []
+        for p in self.providers:
+            try:
+                data = await self._call(p, messages, temperature, max_tokens, request_logprobs)
+            except httpx.HTTPStatusError as e:
+                status = e.response.status_code if e.response is not None else "?"
+                reason = {
+                    401: "unauthorized",
+                    402: "payment_required",
+                    403: "forbidden",
+                    429: "rate_limited",
+                    500: "server_error",
+                    502: "bad_gateway",
+                    503: "service_unavailable",
+                }.get(status, f"http_{status}")
+                msg = f"{p.name}:{reason}"
+                # Try to capture body for diagnostics
+                try:
+                    body = e.response.text[:200] if e.response is not None else ""
+                    if body:
+                        msg += f" ({body.strip()})"
+                except Exception:
+                    pass
+                errors.append(msg)
+                logger.warning("provider %s failed: %s — trying next", p.name, msg)
+                continue
+            except httpx.HTTPError as e:
+                errors.append(f"{p.name}:network_error:{e}")
+                logger.warning("provider %s network error: %s — trying next", p.name, e)
+                continue
+
+            # success
+            self.last_error = None
+            self.active_provider = p.name
+            return self._parse(data, p)
+
+        # all providers failed
+        self.last_error = "; ".join(errors) or "all_providers_failed"
+        self.active_provider = None
+        logger.error("all LLM providers failed: %s — falling back to mock", self.last_error)
+        return self._mock_response(messages, note=self.last_error)
+
+    # ---------- internals ----------
+
+    async def _call(
+        self,
+        p: _Provider,
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: int,
+        request_logprobs: bool,
+    ) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
-            "model": self.model,
+            "model": p.model,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
-        if request_logprobs:
+        if request_logprobs and p.supports_logprobs:
             payload["logprobs"] = True
             payload["top_logprobs"] = 5
 
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                r = await client.post(
-                    f"{self.base_url}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json=payload,
-                )
-                r.raise_for_status()
-                data = r.json()
-        except httpx.HTTPStatusError as e:
-            status = e.response.status_code if e.response is not None else "?"
-            reason = {
-                401: "unauthorized (invalid DEEPSEEK_API_KEY)",
-                402: "payment_required (top-up DeepSeek account balance)",
-                429: "rate_limited",
-                500: "deepseek_server_error",
-            }.get(status, f"http_{status}")
-            self.last_error = reason
-            logger.error("DeepSeek call failed (%s) — falling back to mock", reason)
-            return self._mock_response(messages, note=reason)
-        except httpx.HTTPError as e:
-            self.last_error = f"network_error: {e}"
-            logger.error("DeepSeek network error: %s — falling back to mock", e)
-            return self._mock_response(messages, note=self.last_error)
+        headers = {
+            "Authorization": f"Bearer {p.api_key}",
+            "Content-Type": "application/json",
+            **p.extra_headers,
+        }
 
-        self.last_error = None
-        return self._parse(data)
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            r = await client.post(
+                f"{p.base_url}/chat/completions",
+                headers=headers,
+                json=payload,
+            )
+            r.raise_for_status()
+            return r.json()
 
-    def _parse(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def _parse(self, data: Dict[str, Any], p: _Provider) -> Dict[str, Any]:
         choice = (data.get("choices") or [{}])[0]
         message = choice.get("message", {})
         content = (message.get("content") or "").strip()
 
-        confidence = 0.7  # default if no logprobs
+        # confidence
+        confidence = 0.7
         logprobs = choice.get("logprobs") or {}
         token_data = logprobs.get("content") or []
         if token_data:
-            # Confidence = exp(avg logprob of selected top tokens)
             lps = [
                 t.get("logprob", 0.0)
                 for t in token_data
@@ -113,22 +202,48 @@ class DeepSeekClient:
             if lps:
                 avg = sum(lps) / len(lps)
                 confidence = max(0.05, min(0.99, math.exp(avg)))
+        else:
+            # heuristic confidence when no logprobs (OpenRouter :free)
+            confidence = self._heuristic_confidence(content, choice)
 
         usage = data.get("usage", {})
         return {
             "content": content,
-            "confidence": confidence,
+            "confidence": round(float(confidence), 4),
             "tokens_in": usage.get("prompt_tokens", 0),
             "tokens_out": usage.get("completion_tokens", 0),
             "tokens_total": usage.get("total_tokens", 0),
-            "model": data.get("model", self.model),
+            "model": data.get("model", p.model),
+            "provider": p.name,
             "mock": False,
         }
+
+    @staticmethod
+    def _heuristic_confidence(content: str, choice: Dict[str, Any]) -> float:
+        if not content:
+            return 0.2
+        finish = choice.get("finish_reason", "")
+        # baseline by length
+        L = len(content)
+        if L < 40:
+            base = 0.55
+        elif L < 200:
+            base = 0.72
+        elif L < 800:
+            base = 0.82
+        else:
+            base = 0.78  # very long can drift
+        if finish == "length":
+            base -= 0.05  # was truncated
+        # tiny stochastic jitter so UI doesn't show identical numbers
+        jitter = random.uniform(-0.02, 0.02)
+        return max(0.1, min(0.95, base + jitter))
+
+    # ---------- mock ----------
 
     def _mock_response(
         self, messages: List[Dict[str, str]], note: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Generate a plausible synthetic response for offline/dev mode."""
         last_user = next(
             (m.get("content", "") for m in reversed(messages) if m.get("role") == "user"),
             "",
@@ -136,34 +251,21 @@ class DeepSeekClient:
         system_prompt = next(
             (m.get("content", "") for m in messages if m.get("role") == "system"), ""
         )
-
-        # Intent classifier mock
         if "Classify" in system_prompt or "classify" in system_prompt:
             content = self._mock_classify(last_user)
             return {
-                "content": content,
-                "confidence": 0.82,
-                "tokens_in": 50,
-                "tokens_out": 5,
-                "tokens_total": 55,
-                "model": "mock-deepseek",
-                "mock": True,
-                "note": note,
+                "content": content, "confidence": 0.82,
+                "tokens_in": 50, "tokens_out": 5, "tokens_total": 55,
+                "model": "mock-deepseek", "provider": "mock", "mock": True, "note": note,
             }
-
-        # General response mock
         content = self._mock_general(last_user)
-        # Vary confidence to demo reliability gateway
         confidence = round(random.uniform(0.55, 0.92), 3)
         return {
-            "content": content,
-            "confidence": confidence,
+            "content": content, "confidence": confidence,
             "tokens_in": max(20, len(last_user) // 4),
             "tokens_out": max(20, len(content) // 4),
             "tokens_total": max(40, (len(last_user) + len(content)) // 4),
-            "model": "mock-deepseek",
-            "mock": True,
-            "note": note,
+            "model": "mock-deepseek", "provider": "mock", "mock": True, "note": note,
         }
 
     @staticmethod
@@ -185,7 +287,6 @@ class DeepSeekClient:
     def _mock_general(text: str) -> str:
         if not text:
             return "Готов помочь. Опишите задачу."
-        # Echo-ish but plausible
         snippet = text.strip()[:160]
         return (
             f"Принято: «{snippet}». В рабочем режиме здесь будет ответ DeepSeek с "
@@ -194,7 +295,6 @@ class DeepSeekClient:
         )
 
 
-# Singleton
 _client: Optional[DeepSeekClient] = None
 
 

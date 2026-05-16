@@ -185,6 +185,8 @@ async def health() -> Dict[str, Any]:
             "model": ds.model,
             "last_error": ds.last_error,
             "live": ds.last_error is None and not ds.mock_mode,
+            "active_provider": ds.active_provider,
+            "providers": [p.name for p in ds.providers],
         },
         "voice": {
             "enabled": bool(os.environ.get("EMERGENT_LLM_KEY", "").strip()),
