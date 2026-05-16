@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ChevronUp, ChevronDown } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import api from "../../lib/api";
 
 function PriorityBadge({ level }) {
@@ -23,10 +24,18 @@ function PriorityBadge({ level }) {
 function TaskRow({ index, item }) {
   const done = item.status === "done";
   return (
-    <div
-      className={`flex items-center justify-between ${
-        done ? "opacity-50" : "opacity-90"
-      }`}
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 24, scale: 0.96 }}
+      animate={{ opacity: done ? 0.5 : 0.9, y: 0, scale: 1 }}
+      exit={{ opacity: 0, x: -40, scale: 0.95 }}
+      transition={{
+        layout: { type: "spring", stiffness: 380, damping: 32 },
+        opacity: { duration: 0.35 },
+        y: { type: "spring", stiffness: 320, damping: 28 },
+        scale: { duration: 0.3 },
+      }}
+      className="flex items-center justify-between"
       data-testid={`task-row-${index}`}
     >
       <div className="flex items-center space-x-4 min-w-0">
@@ -52,7 +61,7 @@ function TaskRow({ index, item }) {
           ${item.amount}
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }
 
@@ -77,9 +86,11 @@ function TasksCard({ tasks, totalValue }) {
           </div>
         </div>
         <div className="text-[11px] tracking-tight space-y-2.5">
-          {tasks.map((t, i) => (
-            <TaskRow key={t.id} index={i + 1} item={t} />
-          ))}
+          <AnimatePresence initial={false}>
+            {tasks.map((t, i) => (
+              <TaskRow key={t.id} index={i + 1} item={t} />
+            ))}
+          </AnimatePresence>
         </div>
       </div>
       <div className="mt-5 flex items-center justify-between border-t border-white/5 pt-4">
@@ -183,40 +194,57 @@ function PipelineCard({ snapshot }) {
   );
 }
 
+const INCOMING_TASK_POOL = [
+  { title: "Reconcile Q1 invoices…", priority: "high", amount: 1800 },
+  { title: "Approve hire — Sr. ML…", priority: "critical", amount: 3200 },
+  { title: "Renew Slack workspace…", priority: "low", amount: 120 },
+  { title: "Draft AI policy v2…", priority: "medium", amount: 450 },
+  { title: "Sync with legal team…", priority: "medium", amount: 380 },
+  { title: "Refund Acme Corp…", priority: "high", amount: 920 },
+  { title: "Onboard new vendor…", priority: "medium", amount: 540 },
+  { title: "Patch security CVE…", priority: "critical", amount: 2750 },
+  { title: "Update OKR tracker…", priority: "low", amount: 80 },
+  { title: "Review board deck…", priority: "high", amount: 1500 },
+];
+
+const INITIAL_TASKS = [
+  {
+    id: "task-evening-report",
+    title: "Provide evening report…",
+    priority: "high",
+    amount: 200,
+    status: "open",
+  },
+  {
+    id: "task-team-plan",
+    title: "Send team plan…",
+    priority: "high",
+    amount: 0,
+    status: "done",
+  },
+  {
+    id: "task-enterprise-call",
+    title: "Call from enterprise…",
+    priority: "critical",
+    amount: 2400,
+    status: "open",
+  },
+  {
+    id: "task-pipeline-doc",
+    title: "Update pipeline doc…",
+    priority: "medium",
+    amount: 600,
+    status: "open",
+  },
+];
+
+const MAX_VISIBLE_TASKS = 5;
+
 export default function HomeView() {
   const [snapshot, setSnapshot] = useState(null);
+  const [tasks, setTasks] = useState(INITIAL_TASKS);
+  const poolIdxRef = useRef(0);
 
-  // demo tasks derived from seed alerts/data
-  const tasks = [
-    {
-      id: "task-evening-report",
-      title: "Provide evening report…",
-      priority: "high",
-      amount: 200,
-      status: "open",
-    },
-    {
-      id: "task-team-plan",
-      title: "Send team plan…",
-      priority: "high",
-      amount: 0,
-      status: "done",
-    },
-    {
-      id: "task-enterprise-call",
-      title: "Call from enterprise…",
-      priority: "critical",
-      amount: 2400,
-      status: "open",
-    },
-    {
-      id: "task-pipeline-doc",
-      title: "Update pipeline doc…",
-      priority: "medium",
-      amount: 600,
-      status: "open",
-    },
-  ];
   const totalValue = tasks
     .filter((t) => t.status !== "done")
     .reduce((acc, t) => acc + t.amount, 0);
@@ -230,6 +258,30 @@ export default function HomeView() {
     return () => {
       mounted = false;
     };
+  }, []);
+
+  // Simulate incoming tasks: new task appears at the bottom every ~6s,
+  // pushing the existing rows upward smoothly. Oldest row drops off the top
+  // when the list exceeds MAX_VISIBLE_TASKS.
+  useEffect(() => {
+    const tick = () => {
+      const template =
+        INCOMING_TASK_POOL[poolIdxRef.current % INCOMING_TASK_POOL.length];
+      poolIdxRef.current += 1;
+      const next = {
+        ...template,
+        id: `task-live-${Date.now()}-${poolIdxRef.current}`,
+        status: "open",
+      };
+      setTasks((prev) => {
+        const appended = [...prev, next];
+        return appended.length > MAX_VISIBLE_TASKS
+          ? appended.slice(appended.length - MAX_VISIBLE_TASKS)
+          : appended;
+      });
+    };
+    const t = setInterval(tick, 6000);
+    return () => clearInterval(t);
   }, []);
 
   return (
