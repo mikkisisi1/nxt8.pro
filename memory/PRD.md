@@ -1,8 +1,8 @@
 # NXT8 — Product Requirements Document
 
-**Version:** v1.0.0-pilot-zero
+**Version:** v1.1.0-hermes (additive over v1.0-pilot-zero)
 **Released:** 2026-05-16
-**Status:** ✅ Production-ready for Pilot Zero deployment. См. также `CHANGELOG.md`, `ROADMAP.md`, `PILOT_ZERO.md`.
+**Status:** ✅ Module 15 Hermes Agent live. 41/41 backend + 28/28 frontend tests green. См. `CHANGELOG.md`, `ROADMAP.md`, `PILOT_ZERO.md`.
 
 ---
 

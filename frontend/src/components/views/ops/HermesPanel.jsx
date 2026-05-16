@@ -9,6 +9,8 @@ function StatusDot({ status }) {
       ? "bg-emerald-400"
       : status === "degraded"
       ? "bg-yellow-400"
+      : status === "loading"
+      ? "bg-slate-400 animate-pulse"
       : "bg-red-400";
   return (
     <span
@@ -141,6 +143,7 @@ export default function HermesPanel({ onBack }) {
   const [health, setHealth] = useState(null);
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [firstLoaded, setFirstLoaded] = useState(false);
 
   const refresh = useCallback(async () => {
     const [h, j] = await Promise.all([
@@ -149,6 +152,7 @@ export default function HermesPanel({ onBack }) {
     ]);
     setHealth(h);
     setJobs(j.jobs || []);
+    setFirstLoaded(true);
   }, []);
 
   useEffect(() => {
@@ -165,7 +169,7 @@ export default function HermesPanel({ onBack }) {
     }
   };
 
-  const status = health?.status || "offline";
+  const status = health?.status || (firstLoaded ? "offline" : "loading");
 
   return (
     <section
@@ -195,7 +199,7 @@ export default function HermesPanel({ onBack }) {
         </button>
       </div>
 
-      {status === "offline" && (
+      {status === "offline" && firstLoaded && (
         <div className="text-[11px] text-yellow-300 border border-yellow-500/30 bg-yellow-500/5 rounded-xl p-3">
           Hermes API недоступен. Запустите{" "}
           <code className="bg-brand-dark/60 px-1.5 py-0.5 rounded text-[10px]">
