@@ -42,6 +42,7 @@ from agents import cross_dept as cross_dept_agent  # noqa: E402
 from agents import diagnostics as diagnostics_agent  # noqa: E402
 from agents import skill_creator as skills_agent  # noqa: E402
 from agents import market_radar as market_agent  # noqa: E402
+from agents import hermes_proxy as hermes_agent  # noqa: E402
 from core.db import close_db, ensure_indexes, get_db  # noqa: E402
 from core.deepseek import get_deepseek  # noqa: E402
 
@@ -178,7 +179,7 @@ async def root() -> Dict[str, Any]:
         "version": "1.0.0",
         "modules": [
             "orchestrator", "memory", "reliability", "mentor", "roi", "voice",
-            "cross_dept", "diagnostics", "skill_creator", "market_radar",
+            "cross_dept", "diagnostics", "skill_creator", "market_radar", "hermes",
         ],
     }
 
@@ -874,6 +875,47 @@ async def market_scan(window_hours: int = 24) -> Dict[str, Any]:
 async def market_digests(limit: int = 10) -> Dict[str, Any]:
     items = await market_agent.list_digests(limit=limit)
     return {"count": len(items), "digests": items}
+
+
+# =====================================================================
+# Hermes Agent proxy (module 15, additive)
+# =====================================================================
+
+
+class HermesChatRequest(BaseModel):
+    messages: List[Dict[str, Any]] = Field(default_factory=list)
+    model: Optional[str] = None
+    stream: bool = False
+    temperature: float = 0.7
+
+
+class HermesJobRequest(BaseModel):
+    prompt: str
+    schedule: Optional[str] = None  # cron expression
+    name: Optional[str] = None
+    skills: List[str] = Field(default_factory=list)
+    deliver: Optional[str] = None  # log | telegram | discord | slack
+
+
+@api.get("/hermes/health")
+async def hermes_health() -> Dict[str, Any]:
+    return await hermes_agent.health()
+
+
+@api.post("/hermes/chat")
+async def hermes_chat(req: HermesChatRequest) -> Dict[str, Any]:
+    payload = req.model_dump(exclude_none=True)
+    return await hermes_agent.chat(payload)
+
+
+@api.get("/hermes/jobs")
+async def hermes_jobs_list() -> Dict[str, Any]:
+    return await hermes_agent.list_jobs()
+
+
+@api.post("/hermes/jobs")
+async def hermes_jobs_create(req: HermesJobRequest) -> Dict[str, Any]:
+    return await hermes_agent.create_job(req.model_dump(exclude_none=True))
 
 
 # =====================================================================

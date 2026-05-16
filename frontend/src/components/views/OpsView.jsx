@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from "react";
-import { Network, Activity, Wrench, Radar } from "lucide-react";
+import { Network, Activity, Wrench, Radar, Bot } from "lucide-react";
 import api from "../../lib/api";
 import { WidgetCard } from "./ops/widgets";
 import CrossDeptPanel from "./ops/CrossDeptPanel";
 import DiagnosticsPanel from "./ops/DiagnosticsPanel";
 import SkillsPanel from "./ops/SkillsPanel";
 import MarketPanel from "./ops/MarketPanel";
+import HermesPanel from "./ops/HermesPanel";
 
 function CrossDeptWidget({ data, onOpen }) {
   const tasks = data?.tasks || [];
@@ -147,6 +148,45 @@ function MarketWidget({ data, onOpen }) {
   );
 }
 
+function HermesWidget({ data, onOpen }) {
+  const status = data?.health?.status || "offline";
+  const jobs = data?.jobs || [];
+  const online = status === "online";
+  return (
+    <WidgetCard
+      title="hermes · agent"
+      onOpen={onOpen}
+      testId="widget-hermes"
+      accent={online ? "text-purple-400" : "text-slate-500"}
+      status={online ? "online" : status}
+    >
+      <div className="flex items-center gap-3">
+        <div
+          className={`w-10 h-10 rounded-xl border flex items-center justify-center ${
+            online
+              ? "bg-purple-500/10 border-purple-500/30"
+              : "bg-slate-500/10 border-slate-500/30"
+          }`}
+        >
+          <Bot
+            className={`w-5 h-5 ${online ? "text-purple-400" : "text-slate-500"}`}
+          />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-slate-200 text-[12px] truncate">
+            {online
+              ? `${jobs.length} активных заданий`
+              : "gateway не запущен (порт 8642)"}
+          </div>
+          <div className="text-[9px] uppercase tracking-widest text-slate-500 mt-0.5">
+            NousResearch · OpenAI-compatible
+          </div>
+        </div>
+      </div>
+    </WidgetCard>
+  );
+}
+
 export default function OpsView() {
   const [sub, setSub] = useState(null);
   const [data, setData] = useState({
@@ -154,12 +194,13 @@ export default function OpsView() {
     diagnostics: null,
     skills: null,
     market: null,
+    hermes: null,
   });
 
   useEffect(() => {
     let mounted = true;
     const load = async () => {
-      const [cd, summary, contras, skills, signals, digests] =
+      const [cd, summary, contras, skills, signals, digests, hHealth, hJobs] =
         await Promise.all([
           api.crossDeptTasks(10).catch(() => ({ tasks: [] })),
           api.diagnosticsSummary(200).catch(() => null),
@@ -167,6 +208,8 @@ export default function OpsView() {
           api.skillsList(false, 50).catch(() => ({ skills: [] })),
           api.marketSignals(undefined, 20).catch(() => ({ signals: [] })),
           api.marketDigests(1).catch(() => ({ digests: [] })),
+          api.hermesHealth().catch(() => null),
+          api.hermesJobsList().catch(() => ({ jobs: [] })),
         ]);
       if (!mounted) return;
       setData({
@@ -179,6 +222,10 @@ export default function OpsView() {
         market: {
           signals: signals.signals || [],
           digest: (digests.digests || [])[0] || null,
+        },
+        hermes: {
+          health: hHealth,
+          jobs: hJobs.jobs || [],
         },
       });
     };
@@ -196,6 +243,7 @@ export default function OpsView() {
     return <DiagnosticsPanel onBack={() => setSub(null)} />;
   if (sub === "skills") return <SkillsPanel onBack={() => setSub(null)} />;
   if (sub === "market") return <MarketPanel onBack={() => setSub(null)} />;
+  if (sub === "hermes") return <HermesPanel onBack={() => setSub(null)} />;
 
   return (
     <div className="space-y-3" data-testid="ops-view">
@@ -204,7 +252,7 @@ export default function OpsView() {
           ops.cockpit
         </span>
         <span className="text-slate-500 text-[10px] uppercase tracking-widest animate-flicker">
-          live · 4 modules
+          live · 5 modules
         </span>
       </div>
       <CrossDeptWidget
@@ -217,6 +265,7 @@ export default function OpsView() {
       />
       <SkillsWidget data={data.skills} onOpen={() => setSub("skills")} />
       <MarketWidget data={data.market} onOpen={() => setSub("market")} />
+      <HermesWidget data={data.hermes} onOpen={() => setSub("hermes")} />
     </div>
   );
 }

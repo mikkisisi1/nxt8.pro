@@ -656,3 +656,45 @@ def test_market_digests_list(client):
     for item in d["digests"]:
         assert "_id" not in item
 
+
+
+# =====================================================================
+# Iter 5 — Hermes Agent proxy (module 15, additive)
+# =====================================================================
+
+
+def test_hermes_health_online(client):
+    """Hermes gateway must be reachable and proxy must report status=online."""
+    r = client.get(f"{API}/hermes/health", timeout=15)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d.get("status") == "online", f"Hermes not online: {d}"
+    assert d.get("base_url") == "http://127.0.0.1:8642", d
+    # nested hermes payload from gateway
+    h = d.get("hermes") or {}
+    assert isinstance(h, dict)
+
+
+def test_hermes_jobs_list(client):
+    """GET /api/hermes/jobs — ok=true with a jobs array (possibly empty)."""
+    r = client.get(f"{API}/hermes/jobs", timeout=15)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d.get("ok") is True, f"jobs list not ok: {d}"
+    assert isinstance(d.get("jobs"), list)
+
+
+def test_hermes_job_create_no_crash(client):
+    """POST /api/hermes/jobs with minimal payload — must not crash with 5xx.
+
+    Hermes may reject the body (missing cron/etc.), but proxy must respond
+    gracefully with ok=false and an http status_code, never raise."""
+    payload = {"prompt": "TEST: ping", "deliver": "log"}
+    r = client.post(f"{API}/hermes/jobs", json=payload, timeout=30)
+    assert r.status_code == 200, r.text  # proxy itself returns 200
+    d = r.json()
+    assert "ok" in d
+    assert "status_code" in d
+    assert isinstance(d["status_code"], int)
+    # Whether Hermes accepted or rejected, proxy must report a code
+    assert d["status_code"] in range(200, 600)

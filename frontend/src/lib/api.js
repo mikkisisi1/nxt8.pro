@@ -85,6 +85,14 @@ export const api = {
   marketDigests: (limit = 10) =>
     http.get(`/market/digests?limit=${limit}`).then((r) => r.data),
 
+  // Hermes Agent proxy (module 15)
+  hermesHealth: () => http.get("/hermes/health").then((r) => r.data),
+  hermesChat: (payload) =>
+    http.post("/hermes/chat", payload).then((r) => r.data),
+  hermesJobsList: () => http.get("/hermes/jobs").then((r) => r.data),
+  hermesJobCreate: (payload) =>
+    http.post("/hermes/jobs", payload).then((r) => r.data),
+
   voiceConverse: (blob, opts = {}) => {
     const fd = new FormData();
     const filename = opts.filename || "speech.webm";
