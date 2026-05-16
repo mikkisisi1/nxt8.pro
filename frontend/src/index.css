@@ -180,15 +180,15 @@ body {
   position: absolute;
   top: 50%;
   left: 0;
-  width: 8px;
-  height: 8px;
-  margin-top: -4px;
-  margin-left: -4px;
+  width: 2px;
+  height: 2px;
+  margin-top: -1px;
+  margin-left: -1px;
   background: #2dd4bf;
   border-radius: 9999px;
   box-shadow:
-    0 0 8px rgba(45, 212, 191, 0.9),
-    0 0 16px rgba(45, 212, 191, 0.5);
+    0 0 4px rgba(45, 212, 191, 0.9),
+    0 0 8px rgba(45, 212, 191, 0.5);
   animation: pipe-travel 2.4s linear infinite;
 }
 .pipe-dot--delayed {
