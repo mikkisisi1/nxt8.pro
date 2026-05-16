@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Send, Radar, Plus } from "lucide-react";
 import api from "../../../lib/api";
 import { BackBar, SectionHeader, EmptyHint } from "./widgets";
@@ -12,25 +12,28 @@ const CATEGORIES = [
   "customer",
 ];
 
-const CAT_COLOR = {
-  competitor: "text-red-400 border-red-500/40 bg-red-500/5",
-  pricing: "text-orange-400 border-orange-500/40 bg-orange-500/5",
-  regulation: "text-yellow-400 border-yellow-500/40 bg-yellow-500/5",
-  tech: "text-brand-turquoise border-brand-turquoise/40 bg-brand-turquoise/5",
-  macro: "text-purple-400 border-purple-500/40 bg-purple-500/5",
-  customer: "text-emerald-400 border-emerald-500/40 bg-emerald-500/5",
+const CAT_STYLE = {
+  competitor: { text: "text-red-400", box: "border-red-500/40 bg-red-500/5" },
+  pricing: { text: "text-orange-400", box: "border-orange-500/40 bg-orange-500/5" },
+  regulation: { text: "text-yellow-400", box: "border-yellow-500/40 bg-yellow-500/5" },
+  tech: {
+    text: "text-brand-turquoise",
+    box: "border-brand-turquoise/40 bg-brand-turquoise/5",
+  },
+  macro: { text: "text-purple-400", box: "border-purple-500/40 bg-purple-500/5" },
+  customer: { text: "text-emerald-400", box: "border-emerald-500/40 bg-emerald-500/5" },
 };
 
 function SignalRow({ s }) {
-  const cls = CAT_COLOR[s.category] || CAT_COLOR.tech;
+  const style = CAT_STYLE[s.category] || CAT_STYLE.tech;
   return (
     <div
-      className={`border ${cls.split(" ").slice(1).join(" ")} rounded-xl p-3`}
+      className={`border ${style.box} rounded-xl p-3`}
       data-testid={`market-signal-${s.id}`}
     >
       <div className="flex justify-between items-center mb-1">
         <span
-          className={`text-[9px] uppercase tracking-widest ${cls.split(" ")[0]}`}
+          className={`text-[9px] uppercase tracking-widest ${style.text}`}
         >
           {s.category} · {s.source}
         </span>
@@ -170,7 +173,7 @@ export default function MarketPanel({ onBack }) {
   const [scanning, setScanning] = useState(false);
   const [latestDigest, setLatestDigest] = useState(null);
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     const [s, d] = await Promise.all([
       api.marketSignals(undefined, 50).catch(() => ({ signals: [] })),
       api.marketDigests(5).catch(() => ({ digests: [] })),
@@ -178,11 +181,11 @@ export default function MarketPanel({ onBack }) {
     setSignals(s.signals || []);
     setDigests(d.digests || []);
     if ((d.digests || []).length > 0) setLatestDigest(d.digests[0]);
-  };
+  }, []);
 
   useEffect(() => {
     refresh();
-  }, []);
+  }, [refresh]);
 
   const runScan = async () => {
     if (scanning) return;

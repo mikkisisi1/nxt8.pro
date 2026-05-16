@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Send } from "lucide-react";
 import api from "../../../lib/api";
 import { BackBar, SectionHeader, EmptyHint } from "./widgets";
@@ -56,15 +56,18 @@ export default function CrossDeptPanel({ onBack }) {
   const [loading, setLoading] = useState(false);
   const [latest, setLatest] = useState(null);
 
-  const refresh = () =>
-    api
-      .crossDeptTasks(20)
-      .then((d) => setTasks(d.tasks || []))
-      .catch(() => {});
+  const refresh = useCallback(
+    () =>
+      api
+        .crossDeptTasks(20)
+        .then((d) => setTasks(d.tasks || []))
+        .catch(() => {}),
+    []
+  );
 
   useEffect(() => {
     refresh();
-  }, []);
+  }, [refresh]);
 
   const run = async () => {
     const q = query.trim();
@@ -93,7 +96,13 @@ export default function CrossDeptPanel({ onBack }) {
         <textarea
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Запрос, затрагивающий несколько отделов… (например: «что у нас по продажам и поддержке?»)"
+          onKeyDown={(e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+              e.preventDefault();
+              run();
+            }
+          }}
+          placeholder="Запрос, затрагивающий несколько отделов… (например: «что у нас по продажам и поддержке?»). Ctrl/⌘+Enter — отправить"
           rows={2}
           className="w-full bg-brand-dark/60 border border-white/10 rounded-xl px-3 py-2 text-[12px] text-slate-200 placeholder:text-slate-600 outline-none focus:border-brand-turquoise/50 resize-none"
           data-testid="crossdept-input"

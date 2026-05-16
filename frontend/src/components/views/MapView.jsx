@@ -132,7 +132,7 @@ export default function MapView() {
               const bg = norm < 0 ? "bg-orange-400/70" : "bg-brand-turquoise/70";
               return (
                 <div
-                  key={i}
+                  key={h.hour_end || `trend-${i}`}
                   className={`flex-1 ${bg} rounded-sm`}
                   style={{ height }}
                   title={`${(v * 100).toFixed(1)}%`}

@@ -41,6 +41,7 @@ def _stt() -> OpenAISpeechToText:
     global _stt_client
     if _stt_client is None:
         _stt_client = OpenAISpeechToText(api_key=_api_key())
+    assert _stt_client is not None  # for type checkers
     return _stt_client
 
 
@@ -48,6 +49,7 @@ def _tts() -> OpenAITextToSpeech:
     global _tts_client
     if _tts_client is None:
         _tts_client = OpenAITextToSpeech(api_key=_api_key())
+    assert _tts_client is not None  # for type checkers
     return _tts_client
 
 

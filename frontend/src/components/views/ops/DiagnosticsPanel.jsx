@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { RefreshCw, AlertTriangle } from "lucide-react";
 import api from "../../../lib/api";
 import { BackBar, SectionHeader, Metric, EmptyHint } from "./widgets";
@@ -49,18 +49,18 @@ export default function DiagnosticsPanel({ onBack }) {
   const [contradictions, setContradictions] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     const [s, c] = await Promise.all([
       api.diagnosticsSummary(200).catch(() => null),
       api.diagnosticsList(30).catch(() => ({ contradictions: [] })),
     ]);
     setSummary(s);
     setContradictions(c.contradictions || []);
-  };
+  }, []);
 
   useEffect(() => {
     refresh();
-  }, []);
+  }, [refresh]);
 
   const runScan = async () => {
     if (loading) return;

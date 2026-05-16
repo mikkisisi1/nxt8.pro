@@ -312,6 +312,7 @@ class DeepSeekClient:
         finish = choice.get("finish_reason", "")
         # baseline by length
         L = len(content)
+        base = 0.7
         if L < 40:
             base = 0.55
         elif L < 200:
@@ -389,4 +390,5 @@ def get_deepseek() -> DeepSeekClient:
     global _client
     if _client is None:
         _client = DeepSeekClient()
+    assert _client is not None  # for type checkers
     return _client

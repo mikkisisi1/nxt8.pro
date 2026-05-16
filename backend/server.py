@@ -528,10 +528,10 @@ async def voice_stt(
             filename=file.filename or "audio.webm",
             language=language,
         )
+        return result
     except Exception as e:  # noqa: BLE001
         logger.exception("STT failed: %s", e)
         raise HTTPException(status_code=502, detail=f"stt_failed: {e}")
-    return result
 
 
 @api.post("/voice/tts")
@@ -541,16 +541,16 @@ async def voice_tts(req: TTSRequest) -> Response:
         audio = await voice_agent.synthesize(
             text=req.text, voice=req.voice, speed=req.speed, model=req.model
         )
+        return Response(
+            content=audio,
+            media_type="audio/mpeg",
+            headers={"Cache-Control": "no-store"},
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:  # noqa: BLE001
         logger.exception("TTS failed: %s", e)
         raise HTTPException(status_code=502, detail=f"tts_failed: {e}")
-    return Response(
-        content=audio,
-        media_type="audio/mpeg",
-        headers={"Cache-Control": "no-store"},
-    )
 
 
 @api.post("/voice/converse")

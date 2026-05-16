@@ -78,7 +78,7 @@ function TasksCard({ tasks, totalValue }) {
         </div>
         <div className="text-[11px] tracking-tight space-y-2.5">
           {tasks.map((t, i) => (
-            <TaskRow key={i} index={i + 1} item={t} />
+            <TaskRow key={t.id} index={i + 1} item={t} />
           ))}
         </div>
       </div>
@@ -189,24 +189,28 @@ export default function HomeView() {
   // demo tasks derived from seed alerts/data
   const tasks = [
     {
+      id: "task-evening-report",
       title: "Provide evening report…",
       priority: "high",
       amount: 200,
       status: "open",
     },
     {
+      id: "task-team-plan",
       title: "Send team plan…",
       priority: "high",
       amount: 0,
       status: "done",
     },
     {
+      id: "task-enterprise-call",
       title: "Call from enterprise…",
       priority: "critical",
       amount: 2400,
       status: "open",
     },
     {
+      id: "task-pipeline-doc",
       title: "Update pipeline doc…",
       priority: "medium",
       amount: 600,

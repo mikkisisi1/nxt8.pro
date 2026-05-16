@@ -67,6 +67,7 @@ function MessageBubble({ msg }) {
 export default function ChatView() {
   const [messages, setMessages] = useState([
     {
+      id: "msg-welcome",
       role: "assistant",
       content:
         "Я NXT8. Спрашивайте про корпоративные знания, ROI, сотрудников и задачи. Каждый мой ответ сопровождается confidence score и проверкой против корпоративной памяти.",
@@ -99,10 +100,13 @@ export default function ChatView() {
     const text = input.trim();
     if (!text || loading) return;
     setInput("");
+    const userId = `msg-u-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const aiId = `msg-a-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     setMessages((m) => [
       ...m,
-      { role: "user", content: text },
+      { id: userId, role: "user", content: text },
       {
+        id: aiId,
         role: "assistant",
         content: "",
         meta: {
@@ -237,7 +241,7 @@ export default function ChatView() {
         data-testid="chat-messages"
       >
         {messages.map((m, i) => (
-          <MessageBubble key={i} msg={m} />
+          <MessageBubble key={m.id || `msg-${i}`} msg={m} />
         ))}
         {loading && messages[messages.length - 1]?.meta?.streaming && !messages[messages.length - 1]?.content && (
           <div className="flex justify-start">

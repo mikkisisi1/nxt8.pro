@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { RefreshCw, Power } from "lucide-react";
 import api from "../../../lib/api";
 import { BackBar, SectionHeader, EmptyHint } from "./widgets";
@@ -77,15 +77,18 @@ export default function SkillsPanel({ onBack }) {
   const [skills, setSkills] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  const refresh = () =>
-    api
-      .skillsList(false, 100)
-      .then((d) => setSkills(d.skills || []))
-      .catch(() => {});
+  const refresh = useCallback(
+    () =>
+      api
+        .skillsList(false, 100)
+        .then((d) => setSkills(d.skills || []))
+        .catch(() => {}),
+    []
+  );
 
   useEffect(() => {
     refresh();
-  }, []);
+  }, [refresh]);
 
   const runScan = async () => {
     if (loading) return;
@@ -106,8 +109,8 @@ export default function SkillsPanel({ onBack }) {
           s.id === skill.id ? { ...s, enabled: !skill.enabled } : s
         )
       );
-    } catch {
-      // ignore
+    } catch (err) {
+      console.error("SkillsPanel: toggle failed", err);
     }
   };
 

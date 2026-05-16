@@ -50,9 +50,21 @@ export default function MicView() {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      try { rafRef.current && cancelAnimationFrame(rafRef.current); } catch {}
-      try { streamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
-      try { audioCtxRef.current?.close(); } catch {}
+      try {
+        if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      } catch (err) {
+        console.error("MicView: cancelAnimationFrame failed", err);
+      }
+      try {
+        streamRef.current?.getTracks().forEach((t) => t.stop());
+      } catch (err) {
+        console.error("MicView: stream stop failed", err);
+      }
+      try {
+        audioCtxRef.current?.close();
+      } catch (err) {
+        console.error("MicView: audio context close failed", err);
+      }
     };
   }, []);
 
@@ -85,8 +97,9 @@ export default function MicView() {
         rafRef.current = requestAnimationFrame(tick);
       };
       tick();
-    } catch (e) {
+    } catch (err) {
       // meter is non-critical
+      console.error("MicView: audio meter init failed", err);
     }
   };
 
@@ -119,7 +132,9 @@ export default function MicView() {
   const stopRecording = () => {
     try {
       recorderRef.current?.stop();
-    } catch {}
+    } catch (err) {
+      console.error("MicView: recorder stop failed", err);
+    }
     stopMeter();
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
@@ -152,7 +167,12 @@ export default function MicView() {
           audioElRef.current.onended = () => setState(STATES.IDLE);
           audioElRef.current.onerror = () => setState(STATES.IDLE);
           setState(STATES.SPEAKING);
-          try { await audioElRef.current.play(); } catch { setState(STATES.IDLE); }
+          try {
+            await audioElRef.current.play();
+          } catch (err) {
+            console.error("MicView: audio playback failed", err);
+            setState(STATES.IDLE);
+          }
         } else {
           setState(STATES.IDLE);
         }
@@ -229,7 +249,7 @@ export default function MicView() {
       <div className="w-full h-12 flex items-end justify-center gap-[3px]" data-testid="voice-waveform">
         {bars.map((h, i) => (
           <span
-            key={i}
+            key={`bar-${i}`}
             className={`w-[3px] rounded-full ${recording ? "bg-brand-turquoise" : "bg-brand-turquoise/30"}`}
             style={{ height: `${Math.round(h * 100)}%`, transition: "height 80ms linear" }}
           />

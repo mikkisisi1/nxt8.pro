@@ -30,6 +30,7 @@ def get_db() -> AsyncIOMotorDatabase:
     if _db is None:
         _client = AsyncIOMotorClient(os.environ["MONGO_URL"])
         _db = _client[os.environ["DB_NAME"]]
+    assert _db is not None  # for type checkers
     return _db
 
 

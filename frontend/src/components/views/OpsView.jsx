@@ -188,7 +188,7 @@ export default function OpsView() {
       mounted = false;
       clearInterval(t);
     };
-  }, [sub]);
+  }, []);
 
   if (sub === "cross-dept")
     return <CrossDeptPanel onBack={() => setSub(null)} />;
