@@ -36,6 +36,34 @@ export const api = {
     http.get(`/roi/trend?hours=${hours}`).then((r) => r.data),
 
   alerts: (limit = 20) => http.get(`/alerts?limit=${limit}`).then((r) => r.data),
+
+  voiceConverse: (blob, opts = {}) => {
+    const fd = new FormData();
+    const filename = opts.filename || "speech.webm";
+    fd.append("file", blob, filename);
+    if (opts.session_id) fd.append("session_id", opts.session_id);
+    if (opts.user_id) fd.append("user_id", opts.user_id);
+    if (opts.language) fd.append("language", opts.language);
+    if (opts.voice) fd.append("voice", opts.voice);
+    return http
+      .post("/voice/converse", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: 60000,
+      })
+      .then((r) => r.data);
+  },
+
+  voiceStt: (blob, opts = {}) => {
+    const fd = new FormData();
+    fd.append("file", blob, opts.filename || "speech.webm");
+    if (opts.language) fd.append("language", opts.language);
+    return http
+      .post("/voice/stt", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: 60000,
+      })
+      .then((r) => r.data);
+  },
 };
 
 export default api;

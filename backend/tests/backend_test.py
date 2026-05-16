@@ -50,7 +50,14 @@ def test_health(client):
     data = r.json()
     assert data["status"] == "ok"
     assert data["mongo"] is True
-    assert data["deepseek"]["mock_mode"] is True
+    # DeepSeek may be live or mock — both are acceptable. We do NOT assert mock_mode.
+    assert "deepseek" in data
+    # Voice block — required by review_request iter 2
+    assert "voice" in data
+    v = data["voice"]
+    assert v.get("enabled") is True
+    assert v.get("stt_model") == "whisper-1"
+    assert v.get("tts_model") == "tts-1"
 
 
 def test_seed_idempotent(client, _seed):
@@ -237,15 +244,106 @@ def test_reliability_assess(client):
     assert 0.0 <= d["score"] <= 1.0
 
 
-# ---------------- Voice ----------------
-
-def test_voice_stt_stub(client):
-    r = client.post(f"{API}/voice/stt", timeout=10)
-    assert r.status_code == 200
-    assert r.json()["status"] == "coming_soon"
+# ---------------- Voice (Whisper STT + OpenAI TTS via Emergent key) ----------------
 
 
-def test_voice_tts_stub(client):
-    r = client.post(f"{API}/voice/tts", timeout=10)
-    assert r.status_code == 200
-    assert r.json()["status"] == "coming_soon"
+@pytest.fixture(scope="session")
+def multipart_client():
+    """A separate session without forced JSON content-type for multipart uploads."""
+    s = requests.Session()
+    return s
+
+
+@pytest.fixture(scope="session")
+def tts_audio_mp3(client):
+    """Generate a real mp3 once via /api/voice/tts and reuse for STT / converse tests."""
+    payload = {"text": "Hello world from NXT8 voice test.",
+               "voice": "nova", "speed": 1.0, "model": "tts-1"}
+    r = client.post(f"{API}/voice/tts", json=payload, timeout=60)
+    assert r.status_code == 200, f"TTS bootstrap failed: {r.status_code} {r.text[:200]}"
+    assert r.headers.get("content-type", "").startswith("audio/mpeg"), r.headers
+    audio = r.content
+    assert len(audio) > 1000, "TTS audio suspiciously small"
+    magic2 = audio[:2]
+    assert (magic2[0] == 0xFF and (magic2[1] & 0xF0) == 0xF0) or audio[:3] == b"ID3", (
+        f"Not a valid MP3 stream — first bytes={audio[:4].hex()}"
+    )
+    return audio
+
+
+def test_voice_tts_returns_mp3(client, tts_audio_mp3):
+    # Already verified inside the fixture, but assert again for explicit reporting
+    assert isinstance(tts_audio_mp3, (bytes, bytearray))
+    assert len(tts_audio_mp3) > 1000
+
+
+def test_voice_tts_rejects_empty_text(client):
+    r = client.post(f"{API}/voice/tts",
+                    json={"text": "", "voice": "nova"}, timeout=15)
+    assert r.status_code == 400, f"expected 400, got {r.status_code} {r.text}"
+
+
+def test_voice_tts_rejects_whitespace_text(client):
+    r = client.post(f"{API}/voice/tts",
+                    json={"text": "   "}, timeout=15)
+    assert r.status_code == 400
+
+
+def test_voice_tts_clamps_voice_and_speed(client):
+    # Unknown voice should be coerced to default 'nova' inside synthesize() — status must be 200.
+    r = client.post(f"{API}/voice/tts",
+                    json={"text": "ok", "voice": "not_a_voice", "speed": 999.0},
+                    timeout=60)
+    assert r.status_code == 200, r.text
+    assert r.headers.get("content-type", "").startswith("audio/mpeg")
+
+
+def test_voice_stt_transcribes_audio(multipart_client, tts_audio_mp3):
+    files = {"file": ("audio.mp3", tts_audio_mp3, "audio/mpeg")}
+    data = {"language": "en"}
+    r = multipart_client.post(f"{API}/voice/stt", files=files, data=data, timeout=120)
+    assert r.status_code == 200, f"STT failed: {r.status_code} {r.text[:300]}"
+    d = r.json()
+    for key in ["text", "language", "duration", "model"]:
+        assert key in d, f"missing key {key} in STT response"
+    assert isinstance(d["text"], str) and len(d["text"]) > 0
+    assert d["model"] == "whisper-1"
+    assert any(tok.lower() in d["text"].lower() for tok in ["nxt", "world", "hello"])
+
+
+def test_voice_stt_rejects_empty_file(multipart_client):
+    files = {"file": ("audio.webm", b"", "audio/webm")}
+    r = multipart_client.post(f"{API}/voice/stt", files=files, timeout=15)
+    assert r.status_code == 400, r.text
+
+
+def test_voice_converse_full_loop(multipart_client, tts_audio_mp3):
+    import base64 as _b64
+    files = {"file": ("audio.mp3", tts_audio_mp3, "audio/mpeg")}
+    data = {"user_id": "tester", "language": "en", "voice": "nova"}
+    r = multipart_client.post(f"{API}/voice/converse", files=files, data=data, timeout=180)
+    assert r.status_code == 200, f"converse failed: {r.status_code} {r.text[:300]}"
+    d = r.json()
+    for key in ["session_id", "transcript", "language", "reply",
+                "confidence", "should_escalate", "audio_b64",
+                "audio_format", "tts_error"]:
+        assert key in d, f"missing key {key} in converse response"
+    assert d["session_id"].startswith("sess_")
+    assert isinstance(d["transcript"], str) and len(d["transcript"]) > 0
+    assert isinstance(d["reply"], str) and len(d["reply"]) > 0
+    if d.get("tts_error"):
+        pytest.fail(f"TTS leg of converse failed: {d['tts_error']}")
+    assert d["audio_format"] == "mp3"
+    assert isinstance(d["audio_b64"], str) and len(d["audio_b64"]) > 100
+    decoded = _b64.b64decode(d["audio_b64"])
+    assert len(decoded) > 1000
+    assert (decoded[0] == 0xFF and (decoded[1] & 0xF0) == 0xF0) or decoded[:3] == b"ID3", (
+        f"converse audio_b64 not valid mp3, head={decoded[:4].hex()}"
+    )
+
+
+def test_voice_converse_rejects_empty_file(multipart_client):
+    files = {"file": ("audio.webm", b"", "audio/webm")}
+    r = multipart_client.post(f"{API}/voice/converse", files=files,
+                              data={"user_id": "tester"}, timeout=15)
+    assert r.status_code == 400

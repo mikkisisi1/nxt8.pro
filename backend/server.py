@@ -24,7 +24,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, FastAPI, HTTPException
+from fastapi import APIRouter, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from starlette.middleware.cors import CORSMiddleware
 
@@ -36,6 +37,7 @@ from agents import memory as memory_agent  # noqa: E402
 from agents import orchestrator as orchestrator_agent  # noqa: E402
 from agents import reliability as reliability_agent  # noqa: E402
 from agents import roi as roi_agent  # noqa: E402
+from agents import voice as voice_agent  # noqa: E402
 from core.db import close_db, ensure_indexes, get_db  # noqa: E402
 from core.deepseek import get_deepseek  # noqa: E402
 
@@ -162,7 +164,7 @@ async def root() -> Dict[str, Any]:
     return {
         "service": "NXT8",
         "version": "1.0.0",
-        "modules": ["orchestrator", "memory", "reliability", "mentor", "roi", "voice(stub)"],
+        "modules": ["orchestrator", "memory", "reliability", "mentor", "roi", "voice"],
     }
 
 
@@ -183,6 +185,11 @@ async def health() -> Dict[str, Any]:
             "model": ds.model,
             "last_error": ds.last_error,
             "live": ds.last_error is None and not ds.mock_mode,
+        },
+        "voice": {
+            "enabled": bool(os.environ.get("EMERGENT_LLM_KEY", "").strip()),
+            "stt_model": "whisper-1",
+            "tts_model": "tts-1",
         },
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
@@ -470,23 +477,119 @@ async def list_alerts(limit: int = 20) -> Dict[str, Any]:
 
 
 # =====================================================================
-# Voice (stub for MVP — per user decision 5b)
+# Voice — Whisper STT + OpenAI TTS via Emergent Universal Key
 # =====================================================================
 
 
+class TTSRequest(BaseModel):
+    text: str
+    voice: str = "nova"
+    speed: float = 1.0
+    model: str = "tts-1"
+
+
 @api.post("/voice/stt")
-async def voice_stt() -> Dict[str, Any]:
-    return {
-        "status": "coming_soon",
-        "message": "Voice integration arrives in next phase (Whisper + DeepSeek pipeline).",
-    }
+async def voice_stt(
+    file: UploadFile = File(...),
+    language: Optional[str] = Form(None),
+) -> Dict[str, Any]:
+    """Transcribe an uploaded audio blob (webm/mp3/wav/m4a/ogg) via Whisper."""
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="empty audio file")
+    if len(raw) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="audio exceeds 25 MB limit")
+    try:
+        result = await voice_agent.transcribe(
+            file_bytes=raw,
+            filename=file.filename or "audio.webm",
+            language=language,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.exception("STT failed: %s", e)
+        raise HTTPException(status_code=502, detail=f"stt_failed: {e}")
+    return result
 
 
 @api.post("/voice/tts")
-async def voice_tts() -> Dict[str, Any]:
+async def voice_tts(req: TTSRequest) -> Response:
+    """Synthesize speech from text — returns audio/mpeg bytes."""
+    try:
+        audio = await voice_agent.synthesize(
+            text=req.text, voice=req.voice, speed=req.speed, model=req.model
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:  # noqa: BLE001
+        logger.exception("TTS failed: %s", e)
+        raise HTTPException(status_code=502, detail=f"tts_failed: {e}")
+    return Response(
+        content=audio,
+        media_type="audio/mpeg",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@api.post("/voice/converse")
+async def voice_converse(
+    file: UploadFile = File(...),
+    user_id: str = Form("anonymous"),
+    session_id: Optional[str] = Form(None),
+    language: Optional[str] = Form(None),
+    voice: str = Form("nova"),
+) -> Dict[str, Any]:
+    """One-shot voice loop: STT → orchestrator → TTS (base64 mp3)."""
+    import base64
+
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="empty audio file")
+    try:
+        stt = await voice_agent.transcribe(
+            file_bytes=raw,
+            filename=file.filename or "audio.webm",
+            language=language,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.exception("converse STT failed: %s", e)
+        raise HTTPException(status_code=502, detail=f"stt_failed: {e}")
+
+    user_text = stt["text"]
+    if not user_text:
+        raise HTTPException(status_code=422, detail="no speech detected")
+
+    sid = session_id or f"sess_{uuid.uuid4().hex[:12]}"
+    chat_resp = await orchestrator_agent.route(
+        user_id=user_id,
+        session_id=sid,
+        message=user_text,
+        channel="voice",
+        context={},
+    )
+
+    reply_text = chat_resp.get("content", "")
+    audio_b64: Optional[str] = None
+    tts_error: Optional[str] = None
+    if reply_text.strip():
+        try:
+            audio_bytes = await voice_agent.synthesize(text=reply_text, voice=voice)
+            audio_b64 = base64.b64encode(audio_bytes).decode("ascii")
+        except Exception as e:  # noqa: BLE001
+            logger.exception("converse TTS failed: %s", e)
+            tts_error = str(e)
+    else:
+        tts_error = "empty_reply_from_orchestrator"
+
     return {
-        "status": "coming_soon",
-        "message": "TTS will be enabled with the voice module rollout.",
+        "session_id": sid,
+        "transcript": user_text,
+        "language": stt.get("language"),
+        "reply": reply_text,
+        "confidence": chat_resp.get("confidence"),
+        "should_escalate": chat_resp.get("should_escalate", False),
+        "audio_b64": audio_b64,
+        "audio_format": "mp3" if audio_b64 else None,
+        "tts_error": tts_error,
     }
 
 
