@@ -22,17 +22,17 @@ function PriorityBadge({ level }) {
 }
 
 const PRIORITY_TEXT_COLOR = {
-  critical: "text-red-300",
-  high: "text-orange-300",
-  medium: "text-blue-300",
+  critical: "text-red-400",
+  high: "text-orange-400",
+  medium: "text-sky-400",
   low: "text-brand-turquoise",
 };
 
 // Profit tiers: turquoise (normal) → orange (medium) → purple (best).
 // Thresholds tuned for live /requests amounts (tokens_total / 4 ≈ 30–250).
 function amountTier(amount) {
-  if (amount >= 100) return "text-purple-400";
-  if (amount >= 50) return "text-orange-500";
+  if (amount >= 100) return "text-fuchsia-400";
+  if (amount >= 50) return "text-orange-400";
   return "text-brand-turquoise";
 }
 
@@ -107,7 +107,7 @@ function TasksCard({ tasks, totalValue }) {
         <div className="text-[11px] tracking-tight space-y-2.5">
           <AnimatePresence initial={false}>
             {tasks.map((t, i) => (
-              <TaskRow key={t.id} index={i + 1} item={t} />
+              <TaskRow key={t.key || t.id} index={i + 1} item={t} />
             ))}
           </AnimatePresence>
         </div>
@@ -241,8 +241,11 @@ function mapRequestToTask(req) {
 export default function HomeView() {
   const [snapshot, setSnapshot] = useState(null);
   const [tasks, setTasks] = useState([]);
-  const seenIdsRef = useRef(new Set());
+  const archiveRef = useRef([]); // chrono-ordered pool of all known requests
+  const seenIdsRef = useRef(new Set()); // request ids already loaded into archive
+  const cursorRef = useRef(0); // pointer for cyclic recycling
   const bootstrappedRef = useRef(false);
+  const tickCounterRef = useRef(0);
 
   const totalValue = tasks
     .filter((t) => t.status !== "done")
@@ -259,48 +262,85 @@ export default function HomeView() {
     };
   }, []);
 
-  // Poll real /requests feed. On first load: seed list with the latest N (oldest→newest).
-  // On subsequent polls: detect new request ids and append them to the bottom, oldest
-  // rows drop off the top once we exceed MAX_VISIBLE_TASKS. AnimatePresence + layout
-  // give us the smooth "rise" effect.
+  // Hybrid live feed:
+  //   • Poll /api/requests (limit 30) every 10s — refreshes the archive of real
+  //     historic requests, picks up newly-arrived ids.
+  //   • Every 5s emit ONE row to the bottom of the visible list. Priority order:
+  //       1. genuinely new (never-shown) request → emit it first
+  //       2. otherwise cycle through the archive with a synthetic key so React /
+  //          framer-motion treat it as a fresh row → smooth rise animation.
+  //   • Visible list capped at MAX_VISIBLE_TASKS (oldest at the top is evicted).
   useEffect(() => {
     let mounted = true;
+    const pendingNew = []; // queue of fresh tasks not yet emitted
 
-    const poll = async () => {
+    const refreshArchive = async () => {
       try {
-        const list = await api.recentRequests(20);
-        if (!mounted || !Array.isArray(list)) return;
-        // backend returns newest-first; flip to chronological so newest appends last
-        const chrono = [...list].reverse();
-
-        if (!bootstrappedRef.current) {
-          const initial = chrono.slice(-MAX_VISIBLE_TASKS);
-          initial.forEach((r) => seenIdsRef.current.add(r.id));
-          setTasks(initial.map(mapRequestToTask));
+        const list = await api.recentRequests(30);
+        if (!mounted || !Array.isArray(list) || list.length === 0) return;
+        const chrono = [...list].reverse(); // oldest → newest
+        const arrived = [];
+        for (const r of chrono) {
+          if (!seenIdsRef.current.has(r.id)) {
+            seenIdsRef.current.add(r.id);
+            archiveRef.current.push(r);
+            arrived.push(r);
+          }
+        }
+        // Bootstrap: seed the visible list with the latest N immediately.
+        if (!bootstrappedRef.current && archiveRef.current.length > 0) {
           bootstrappedRef.current = true;
+          const initial = archiveRef.current
+            .slice(-MAX_VISIBLE_TASKS)
+            .map((r) => ({ ...mapRequestToTask(r), key: `seed-${r.id}` }));
+          setTasks(initial);
+          // start cursor right after the seeded window so cycling continues forward
+          cursorRef.current = archiveRef.current.length;
           return;
         }
-
-        const fresh = chrono.filter((r) => !seenIdsRef.current.has(r.id));
-        if (fresh.length === 0) return;
-        fresh.forEach((r) => seenIdsRef.current.add(r.id));
-
-        setTasks((prev) => {
-          const appended = [...prev, ...fresh.map(mapRequestToTask)];
-          return appended.length > MAX_VISIBLE_TASKS
-            ? appended.slice(appended.length - MAX_VISIBLE_TASKS)
-            : appended;
-        });
+        // Post-bootstrap: queue genuinely new requests for immediate emission.
+        for (const r of arrived) {
+          pendingNew.push({
+            ...mapRequestToTask(r),
+            key: `live-${r.id}`,
+          });
+        }
       } catch {
-        // network blip — skip this tick
+        /* network blip — ignore */
       }
     };
 
-    poll();
-    const t = setInterval(poll, 5000);
+    const emitOne = () => {
+      if (!bootstrappedRef.current || archiveRef.current.length === 0) return;
+      let nextTask;
+      if (pendingNew.length > 0) {
+        nextTask = pendingNew.shift();
+      } else {
+        const pool = archiveRef.current;
+        const r = pool[cursorRef.current % pool.length];
+        cursorRef.current += 1;
+        tickCounterRef.current += 1;
+        nextTask = {
+          ...mapRequestToTask(r),
+          // synthetic unique key so AnimatePresence treats it as new
+          key: `cycle-${tickCounterRef.current}-${r.id}`,
+        };
+      }
+      setTasks((prev) => {
+        const appended = [...prev, nextTask];
+        return appended.length > MAX_VISIBLE_TASKS
+          ? appended.slice(appended.length - MAX_VISIBLE_TASKS)
+          : appended;
+      });
+    };
+
+    refreshArchive();
+    const archiveTimer = setInterval(refreshArchive, 10000);
+    const emitTimer = setInterval(emitOne, 5000);
     return () => {
       mounted = false;
-      clearInterval(t);
+      clearInterval(archiveTimer);
+      clearInterval(emitTimer);
     };
   }, []);
 
