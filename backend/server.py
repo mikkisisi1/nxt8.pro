@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.middleware.cors import CORSMiddleware
 
@@ -38,6 +38,10 @@ from agents import orchestrator as orchestrator_agent  # noqa: E402
 from agents import reliability as reliability_agent  # noqa: E402
 from agents import roi as roi_agent  # noqa: E402
 from agents import voice as voice_agent  # noqa: E402
+from agents import cross_dept as cross_dept_agent  # noqa: E402
+from agents import diagnostics as diagnostics_agent  # noqa: E402
+from agents import skill_creator as skills_agent  # noqa: E402
+from agents import market_radar as market_agent  # noqa: E402
 from core.db import close_db, ensure_indexes, get_db  # noqa: E402
 from core.deepseek import get_deepseek  # noqa: E402
 
@@ -53,11 +57,19 @@ logger = logging.getLogger("nxt8.server")
 
 
 async def _roi_scheduler() -> None:
-    """Hourly ROI snapshot + session cleanup (ТЗ near-real-time cadence)."""
+    """Hourly tick: ROI + session cleanup + diagnostics + skill discovery."""
     while True:
         try:
             await roi_agent.calculate_hourly_roi()
             await memory_agent.get_memory().cleanup_expired_sessions()
+            try:
+                await diagnostics_agent.scan_contradictions()
+            except Exception as e:  # noqa: BLE001
+                logger.warning("diagnostics scan failed: %s", e)
+            try:
+                await skills_agent.scan_and_register()
+            except Exception as e:  # noqa: BLE001
+                logger.warning("skill discovery failed: %s", e)
         except Exception as e:  # noqa: BLE001
             logger.exception("scheduler tick failed: %s", e)
         await asyncio.sleep(3600)
@@ -164,7 +176,10 @@ async def root() -> Dict[str, Any]:
     return {
         "service": "NXT8",
         "version": "1.0.0",
-        "modules": ["orchestrator", "memory", "reliability", "mentor", "roi", "voice"],
+        "modules": [
+            "orchestrator", "memory", "reliability", "mentor", "roi", "voice",
+            "cross_dept", "diagnostics", "skill_creator", "market_radar",
+        ],
     }
 
 
@@ -297,6 +312,12 @@ async def seed_demo() -> Dict[str, Any]:
 
     # generate first roi snapshot
     await roi_agent.calculate_hourly_roi()
+
+    # seed market signals + first digest
+    try:
+        await market_agent.seed_demo_signals()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("market seed failed: %s", e)
 
     return {
         "status": "seeded",
@@ -593,6 +614,266 @@ async def voice_converse(
         "audio_format": "mp3" if audio_b64 else None,
         "tts_error": tts_error,
     }
+
+
+# =====================================================================
+# Streaming chat (SSE)
+# =====================================================================
+
+
+@api.post("/chat/stream")
+async def chat_stream(req: ChatRequest) -> StreamingResponse:
+    """Server-Sent Events stream of an orchestrator response.
+
+    Frame format:
+        event: meta   data: {session_id, intent, ...}
+        event: delta  data: {text}
+        event: done   data: {confidence, latency_ms, ...}
+        event: error  data: {message}
+    """
+    import json as _json
+    import time as _time
+
+    session_id = req.session_id or f"sess_{uuid.uuid4().hex[:12]}"
+
+    async def gen():
+        t0 = _time.time()
+        deepseek = get_deepseek()
+        mem = memory_agent.get_memory()
+
+        try:
+            await mem.append_message(session_id, "user", req.message)
+            ctx = await mem.get_optimal_context(req.message, session_id, max_chars=6000)
+
+            # Quick intent classify via fast model call (small max_tokens)
+            intent_resp = await deepseek.chat(
+                messages=[
+                    {"role": "system", "content":
+                        "Classify into ONE of: knowledge, task, mentor, roi, voice, general. "
+                        "Respond with ONLY the category name."},
+                    {"role": "user", "content": req.message},
+                ],
+                temperature=0.0,
+                max_tokens=10,
+                request_logprobs=False,
+            )
+            intent_raw = (intent_resp.get("content") or "general").strip().lower().split()[0]
+            valid = {"knowledge", "task", "mentor", "roi", "voice", "general"}
+            intent = intent_raw if intent_raw in valid else "general"
+
+            yield f"event: meta\ndata: {_json.dumps({'session_id': session_id, 'intent': intent})}\n\n"
+
+            messages_for_llm = [
+                {"role": "system", "content":
+                    "Ты NXT8 — AI-операционная система. Отвечай на русском, по делу, "
+                    "используй корпоративный контекст, не выдумывай."},
+                {"role": "system", "content": f"## Context\n{ctx['context']}"},
+                {"role": "user", "content": req.message},
+            ]
+
+            full_chunks: list[str] = []
+            async for delta in deepseek.chat_stream(
+                messages=messages_for_llm,
+                temperature=0.6,
+                max_tokens=1024,
+            ):
+                full_chunks.append(delta)
+                yield f"event: delta\ndata: {_json.dumps({'text': delta})}\n\n"
+
+            full = "".join(full_chunks)
+            await mem.append_message(session_id, "assistant", full)
+
+            # post-stream reliability
+            past = [m["content"] for m in (await mem.get_session(session_id, limit=10))
+                    if m.get("role") == "assistant"]
+            mem_ctx_texts = [r.get("content", "") for r in ctx.get("retrieved", [])]
+            rel = reliability_agent.assess(
+                response=full,
+                deepseek_confidence=0.78,  # streamed; no logprobs aggregate
+                source="deepseek",
+                evidence_count=len(mem_ctx_texts),
+                past_responses=past,
+                memory_context=mem_ctx_texts,
+            )
+
+            latency_ms = int((_time.time() - t0) * 1000)
+            request_id = str(uuid.uuid4())
+            await get_db().requests.insert_one({
+                "id": request_id,
+                "user_id": req.user_id,
+                "session_id": session_id,
+                "channel": "stream",
+                "message": req.message,
+                "intent": intent,
+                "agent_chain": ["orchestrator(stream)"],
+                "response": full,
+                "confidence": rel.score,
+                "confidence_level": rel.level,
+                "should_escalate": rel.should_escalate,
+                "verification_status": rel.verification_status,
+                "tokens_total": 0,
+                "latency_ms": latency_ms,
+                "mock": False,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+
+            done_payload = {
+                "request_id": request_id,
+                "session_id": session_id,
+                "intent": intent,
+                "confidence": rel.score,
+                "confidence_level": rel.level,
+                "should_escalate": rel.should_escalate,
+                "verification_status": rel.verification_status,
+                "latency_ms": latency_ms,
+                "provider": deepseek.active_provider,
+            }
+            yield f"event: done\ndata: {_json.dumps(done_payload)}\n\n"
+        except Exception as e:  # noqa: BLE001
+            logger.exception("stream pipeline failed: %s", e)
+            yield f"event: error\ndata: {_json.dumps({'message': str(e)})}\n\n"
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+# =====================================================================
+# Cross-Department Coordinator
+# =====================================================================
+
+
+class CrossDeptRequest(BaseModel):
+    query: str
+    user_id: str = "anonymous"
+    session_id: Optional[str] = None
+
+
+@api.post("/cross-dept/coordinate")
+async def cross_dept_coordinate(req: CrossDeptRequest) -> Dict[str, Any]:
+    return await cross_dept_agent.coordinate(
+        query=req.query, user_id=req.user_id, session_id=req.session_id
+    )
+
+
+@api.get("/cross-dept/tasks")
+async def cross_dept_tasks(limit: int = 20) -> Dict[str, Any]:
+    items = await cross_dept_agent.list_tasks(limit=limit)
+    return {"count": len(items), "tasks": items}
+
+
+@api.get("/cross-dept/detect")
+async def cross_dept_detect(query: str) -> Dict[str, Any]:
+    depts = cross_dept_agent.detect_departments(query)
+    return {"query": query, "departments": depts, "multi_department": len(depts) >= 2}
+
+
+# =====================================================================
+# Diagnostics
+# =====================================================================
+
+
+@api.post("/diagnostics/scan")
+async def diagnostics_scan(
+    window: int = 200, sim_threshold: float = 0.45, divergence_threshold: float = 0.3
+) -> Dict[str, Any]:
+    return await diagnostics_agent.scan_contradictions(
+        window=window,
+        sim_threshold=sim_threshold,
+        divergence_threshold=divergence_threshold,
+    )
+
+
+@api.get("/diagnostics/contradictions")
+async def diagnostics_list(limit: int = 30) -> Dict[str, Any]:
+    items = await diagnostics_agent.list_contradictions(limit=limit)
+    return {"count": len(items), "contradictions": items}
+
+
+@api.get("/diagnostics/summary")
+async def diagnostics_summary(window: int = 200) -> Dict[str, Any]:
+    return await diagnostics_agent.summary(window=window)
+
+
+# =====================================================================
+# Skill Creator
+# =====================================================================
+
+
+class SkillRequest(BaseModel):
+    name: Optional[str] = None
+    intent: str = "general"
+    signature_terms: List[str] = Field(default_factory=list)
+    prompt_template: Optional[str] = None
+    memory_filter: Dict[str, Any] = Field(default_factory=dict)
+
+
+@api.post("/skills/scan")
+async def skills_scan() -> Dict[str, Any]:
+    return await skills_agent.scan_and_register()
+
+
+@api.get("/skills")
+async def skills_list(enabled: bool = False, limit: int = 100) -> Dict[str, Any]:
+    items = await skills_agent.list_skills(only_enabled=enabled, limit=limit)
+    return {"count": len(items), "skills": items}
+
+
+@api.post("/skills")
+async def skills_create(req: SkillRequest) -> Dict[str, Any]:
+    return await skills_agent.create_skill(req.model_dump())
+
+
+@api.post("/skills/{skill_id}/toggle")
+async def skills_toggle(skill_id: str, enabled: bool = True) -> Dict[str, Any]:
+    res = await skills_agent.toggle_skill(skill_id, enabled=enabled)
+    if not res:
+        raise HTTPException(status_code=404, detail="skill not found")
+    return res
+
+
+# =====================================================================
+# Market Radar
+# =====================================================================
+
+
+class MarketSignalRequest(BaseModel):
+    headline: str
+    source: str = "manual"
+    category: str = "tech"
+    url: Optional[str] = None
+    score: float = 0.5
+
+
+@api.post("/market/signals")
+async def market_ingest(req: MarketSignalRequest) -> Dict[str, Any]:
+    try:
+        return await market_agent.ingest_signal(req.model_dump())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@api.get("/market/signals")
+async def market_list_signals(category: Optional[str] = None, limit: int = 50) -> Dict[str, Any]:
+    items = await market_agent.list_signals(category=category, limit=limit)
+    return {"count": len(items), "signals": items}
+
+
+@api.post("/market/scan")
+async def market_scan(window_hours: int = 24) -> Dict[str, Any]:
+    return await market_agent.scan(window_hours=window_hours)
+
+
+@api.get("/market/digests")
+async def market_digests(limit: int = 10) -> Dict[str, Any]:
+    items = await market_agent.list_digests(limit=limit)
+    return {"count": len(items), "digests": items}
 
 
 # =====================================================================

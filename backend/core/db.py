@@ -47,6 +47,13 @@ async def ensure_indexes() -> None:
     await db.interactions.create_index([("deal_id", 1), ("agent", 1)])
     await db.roi_history.create_index("hour_end", unique=True)
     await db.alerts.create_index([("created_at", -1)])
+    await db.cross_dept_tasks.create_index([("created_at", -1)])
+    await db.contradictions.create_index("pair_key", unique=True)
+    await db.contradictions.create_index([("detected_at", -1)])
+    await db.skills.create_index([("intent", 1), ("updated_at", -1)])
+    await db.market_signals.create_index([("ingested_at", -1)])
+    await db.market_signals.create_index("category")
+    await db.market_digests.create_index([("created_at", -1)])
 
 
 def close_db() -> None:

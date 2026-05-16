@@ -149,6 +149,44 @@ class DeepSeekClient:
         logger.error("all LLM providers failed: %s — falling back to mock", self.last_error)
         return self._mock_response(messages, note=self.last_error)
 
+    async def chat_stream(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float = 0.7,
+        max_tokens: int = 2048,
+    ):
+        """Async generator yielding incremental content chunks (strings).
+
+        First successful provider streams its delta tokens. On total failure
+        falls back to a single mock chunk to keep client UX consistent.
+        """
+        if self.mock_mode:
+            yield self._mock_response(messages)["content"]
+            return
+
+        errors: List[str] = []
+        for p in self.providers:
+            try:
+                async for chunk in self._call_stream(p, messages, temperature, max_tokens):
+                    if chunk:
+                        yield chunk
+                self.last_error = None
+                self.active_provider = p.name
+                return
+            except httpx.HTTPStatusError as e:
+                status = e.response.status_code if e.response is not None else "?"
+                errors.append(f"{p.name}:http_{status}")
+                logger.warning("stream provider %s failed: http_%s — trying next", p.name, status)
+                continue
+            except httpx.HTTPError as e:
+                errors.append(f"{p.name}:network_error:{e}")
+                logger.warning("stream provider %s network: %s — trying next", p.name, e)
+                continue
+
+        self.last_error = "; ".join(errors) or "all_providers_failed_stream"
+        self.active_provider = None
+        yield self._mock_response(messages, note=self.last_error)["content"]
+
     # ---------- internals ----------
 
     async def _call(
@@ -183,6 +221,55 @@ class DeepSeekClient:
             )
             r.raise_for_status()
             return r.json()
+
+    async def _call_stream(
+        self,
+        p: _Provider,
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: int,
+    ):
+        """Async generator: yields delta content strings via SSE from provider."""
+        import json as _json
+
+        payload: Dict[str, Any] = {
+            "model": p.model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+        }
+        headers = {
+            "Authorization": f"Bearer {p.api_key}",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            **p.extra_headers,
+        }
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            async with client.stream(
+                "POST",
+                f"{p.base_url}/chat/completions",
+                headers=headers,
+                json=payload,
+            ) as r:
+                r.raise_for_status()
+                async for line in r.aiter_lines():
+                    if not line or not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        return
+                    try:
+                        obj = _json.loads(data)
+                    except _json.JSONDecodeError:
+                        continue
+                    choices = obj.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta") or {}
+                    content = delta.get("content")
+                    if content:
+                        yield content
 
     def _parse(self, data: Dict[str, Any], p: _Provider) -> Dict[str, Any]:
         choice = (data.get("choices") or [{}])[0]

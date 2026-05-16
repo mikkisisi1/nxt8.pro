@@ -64,6 +64,51 @@ export const api = {
       })
       .then((r) => r.data);
   },
+
+  // Server-Sent Events stream of /api/chat/stream.
+  // onMeta({session_id, intent}), onDelta(text), onDone(payload), onError(msg)
+  chatStream: async (payload, { onMeta, onDelta, onDone, onError, signal } = {}) => {
+    const res = await fetch(`${API}/chat/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+      body: JSON.stringify(payload),
+      signal,
+    });
+    if (!res.ok || !res.body) {
+      onError?.(`HTTP ${res.status}`);
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buffer.indexOf("\n\n")) !== -1) {
+        const frame = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        let event = "message";
+        let dataLine = "";
+        for (const line of frame.split("\n")) {
+          if (line.startsWith("event:")) event = line.slice(6).trim();
+          else if (line.startsWith("data:")) dataLine += line.slice(5).trim();
+        }
+        if (!dataLine) continue;
+        let data;
+        try {
+          data = JSON.parse(dataLine);
+        } catch {
+          continue;
+        }
+        if (event === "meta") onMeta?.(data);
+        else if (event === "delta") onDelta?.(data.text || "");
+        else if (event === "done") onDone?.(data);
+        else if (event === "error") onError?.(data.message || "error");
+      }
+    }
+  },
 };
 
 export default api;

@@ -20,7 +20,12 @@ function MessageBubble({ msg }) {
           isUser ? "bubble-user" : "bubble-ai"
         }`}
       >
-        <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+        <div className="whitespace-pre-wrap break-words">
+          {msg.content}
+          {!isUser && msg.meta?.streaming && (
+            <span className="ml-0.5 inline-block w-1.5 h-3.5 bg-brand-turquoise animate-pulse align-middle" />
+          )}
+        </div>
         {!isUser && msg.meta && (
           <div className="mt-2 pt-2 border-t border-white/5 flex flex-wrap gap-2 text-[9px] uppercase tracking-widest">
             <span
@@ -94,47 +99,112 @@ export default function ChatView() {
     const text = input.trim();
     if (!text || loading) return;
     setInput("");
-    setMessages((m) => [...m, { role: "user", content: text }]);
-    setLoading(true);
-    try {
-      const res = await api.chat({
-        user_id: "demo",
-        session_id: sessionRef.current,
-        message: text,
-      });
-      setMessages((m) => [
-        ...m,
-        {
-          role: "assistant",
-          content: res.content || "(пустой ответ)",
-          meta: {
-            confidence: res.confidence,
-            confidence_level: res.confidence_level,
-            intent: res.intent,
-            latency_ms: res.latency_ms,
-            should_escalate: res.should_escalate,
-            verification_status: res.verification_status,
-            mock: res.mock,
-          },
+    setMessages((m) => [
+      ...m,
+      { role: "user", content: text },
+      {
+        role: "assistant",
+        content: "",
+        meta: {
+          confidence: 0,
+          confidence_level: "low",
+          intent: "...",
+          latency_ms: 0,
+          should_escalate: false,
+          verification_status: "pending",
+          mock: false,
+          streaming: true,
         },
-      ]);
-    } catch (e) {
-      setMessages((m) => [
-        ...m,
+      },
+    ]);
+    setLoading(true);
+
+    let aggregated = "";
+    let meta = { intent: "..." };
+
+    try {
+      await api.chatStream(
+        { user_id: "demo", session_id: sessionRef.current, message: text },
         {
-          role: "assistant",
+          onMeta: (m) => {
+            meta = { ...meta, ...m };
+            setMessages((msgs) => {
+              const last = msgs.length - 1;
+              const updated = [...msgs];
+              updated[last] = {
+                ...updated[last],
+                meta: { ...updated[last].meta, intent: m.intent || meta.intent },
+              };
+              return updated;
+            });
+          },
+          onDelta: (chunk) => {
+            aggregated += chunk;
+            setMessages((msgs) => {
+              const last = msgs.length - 1;
+              const updated = [...msgs];
+              updated[last] = { ...updated[last], content: aggregated };
+              return updated;
+            });
+          },
+          onDone: (payload) => {
+            setMessages((msgs) => {
+              const last = msgs.length - 1;
+              const updated = [...msgs];
+              updated[last] = {
+                ...updated[last],
+                content: aggregated || "(пустой ответ)",
+                meta: {
+                  confidence: payload.confidence,
+                  confidence_level: payload.confidence_level,
+                  intent: payload.intent || meta.intent,
+                  latency_ms: payload.latency_ms,
+                  should_escalate: payload.should_escalate,
+                  verification_status: payload.verification_status,
+                  mock: false,
+                  streaming: false,
+                  provider: payload.provider,
+                },
+              };
+              return updated;
+            });
+          },
+          onError: (err) => {
+            setMessages((msgs) => {
+              const last = msgs.length - 1;
+              const updated = [...msgs];
+              updated[last] = {
+                ...updated[last],
+                content: `Ошибка соединения: ${err}`,
+                meta: {
+                  ...updated[last].meta,
+                  streaming: false,
+                  should_escalate: true,
+                  verification_status: "unverified",
+                  confidence_level: "low",
+                },
+              };
+              return updated;
+            });
+          },
+        }
+      );
+    } catch (e) {
+      setMessages((msgs) => {
+        const last = msgs.length - 1;
+        const updated = [...msgs];
+        updated[last] = {
+          ...updated[last],
           content: `Ошибка соединения: ${e.message}`,
           meta: {
-            confidence: 0,
-            confidence_level: "low",
-            intent: "general",
-            latency_ms: 0,
+            ...updated[last].meta,
+            streaming: false,
             should_escalate: true,
-            verification_status: "unverified",
-            mock: false,
+            confidence_level: "low",
           },
-        },
-      ]);
+        };
+        return updated;
+      });
     } finally {
       setLoading(false);
     }
@@ -169,7 +239,7 @@ export default function ChatView() {
         {messages.map((m, i) => (
           <MessageBubble key={i} msg={m} />
         ))}
-        {loading && (
+        {loading && messages[messages.length - 1]?.meta?.streaming && !messages[messages.length - 1]?.content && (
           <div className="flex justify-start">
             <div className="bubble-ai rounded-2xl px-4 py-3 text-xs text-slate-400">
               думаю<span className="animate-pulse">…</span>

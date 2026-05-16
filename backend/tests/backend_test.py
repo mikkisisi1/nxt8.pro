@@ -52,6 +52,10 @@ def test_health(client):
     assert data["mongo"] is True
     # DeepSeek may be live or mock — both are acceptable. We do NOT assert mock_mode.
     assert "deepseek" in data
+    ds = data["deepseek"]
+    # iter3: active_provider + providers list required
+    assert "active_provider" in ds
+    assert isinstance(ds.get("providers"), list) and len(ds["providers"]) >= 1
     # Voice block — required by review_request iter 2
     assert "voice" in data
     v = data["voice"]
@@ -348,3 +352,307 @@ def test_voice_converse_rejects_empty_file(multipart_client):
     r = multipart_client.post(f"{API}/voice/converse", files=files,
                               data={"user_id": "tester"}, timeout=15)
     assert r.status_code == 400
+
+
+# =====================================================================
+# Iter 3 — SSE /chat/stream
+# =====================================================================
+
+
+def test_chat_stream_sse_frames(client):
+    """Hit /api/chat/stream, parse SSE frames, verify meta/delta/done arrive
+    and that an audit row is persisted to db.requests."""
+    import json as _json
+
+    session_id = f"sess_{uuid.uuid4().hex[:10]}"
+    payload = {
+        "user_id": "tester_stream",
+        "session_id": session_id,
+        "message": "Привет! Кратко скажи политику возвратов компании.",
+    }
+    # use stream=True so we can read events as they arrive
+    with requests.post(
+        f"{API}/chat/stream", json=payload, stream=True, timeout=90
+    ) as r:
+        assert r.status_code == 200, r.text[:300]
+        ctype = r.headers.get("content-type", "")
+        assert "text/event-stream" in ctype, f"bad content-type: {ctype}"
+
+        events = {"meta": 0, "delta": 0, "done": 0, "error": 0}
+        done_payload = None
+        buf = []
+        # raw line-by-line
+        for raw in r.iter_lines(decode_unicode=True):
+            if raw is None:
+                continue
+            if raw == "":
+                # frame separator — process buffered frame
+                if not buf:
+                    continue
+                evt = None
+                data_line = None
+                for line in buf:
+                    if line.startswith("event:"):
+                        evt = line.split(":", 1)[1].strip()
+                    elif line.startswith("data:"):
+                        data_line = line.split(":", 1)[1].strip()
+                buf = []
+                if evt in events:
+                    events[evt] += 1
+                if evt == "done" and data_line:
+                    try:
+                        done_payload = _json.loads(data_line)
+                    except Exception:
+                        pass
+                    break  # done is terminal
+                if evt == "error" and data_line:
+                    pytest.fail(f"stream produced error frame: {data_line}")
+            else:
+                buf.append(raw)
+
+    assert events["meta"] >= 1, f"no meta frame, got {events}"
+    assert events["delta"] >= 1, f"no delta frames, got {events}"
+    assert events["done"] == 1, f"expected exactly 1 done, got {events}"
+    assert events["error"] == 0, f"unexpected error frames, got {events}"
+    assert done_payload is not None
+    for key in [
+        "request_id", "session_id", "intent", "confidence",
+        "confidence_level", "should_escalate", "verification_status",
+        "latency_ms", "provider",
+    ]:
+        assert key in done_payload, f"missing {key} in done payload"
+    assert done_payload["session_id"] == session_id
+
+    # audit row persisted
+    time.sleep(0.5)
+    r2 = client.get(f"{API}/sessions/{session_id}", timeout=15)
+    assert r2.status_code == 200
+    msgs = r2.json().get("messages", [])
+    assert any(m.get("role") == "assistant" for m in msgs), msgs
+
+
+# =====================================================================
+# Iter 3 — Cross-Department Coordinator
+# =====================================================================
+
+
+def test_cross_dept_detect_sales_support():
+    r = requests.get(
+        f"{API}/cross-dept/detect",
+        params={"query": "Расскажи про продажи и поддержку клиентов"},
+        timeout=15,
+    )
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert isinstance(d.get("departments"), list)
+    depts = set(d["departments"])
+    assert "sales" in depts and "support" in depts, depts
+    assert d["multi_department"] is True
+
+
+def test_cross_dept_coordinate_multi(client):
+    payload = {
+        "query": "Расскажи про продажи и поддержку",
+        "user_id": "tester",
+        "session_id": f"sess_{uuid.uuid4().hex[:10]}",
+    }
+    r = client.post(f"{API}/cross-dept/coordinate", json=payload, timeout=180)
+    assert r.status_code == 200, r.text[:400]
+    d = r.json()
+    for key in [
+        "task_id", "departments", "multi_department", "findings",
+        "synthesis", "confidence", "provider", "mock", "created_at",
+    ]:
+        assert key in d, f"missing {key} in coordinate response: {list(d.keys())}"
+    depts = set(d["departments"])
+    assert "sales" in depts and "support" in depts, depts
+    assert d["multi_department"] is True
+    assert isinstance(d["findings"], list) and len(d["findings"]) >= 2
+    assert isinstance(d["synthesis"], str) and len(d["synthesis"]) > 0
+    assert isinstance(d["confidence"], (int, float))
+
+
+def test_cross_dept_tasks_list(client):
+    r = client.get(f"{API}/cross-dept/tasks", timeout=15)
+    assert r.status_code == 200
+    d = r.json()
+    assert "count" in d and "tasks" in d
+    assert isinstance(d["tasks"], list)
+    # No mongo _id leak
+    for t in d["tasks"]:
+        assert "_id" not in t
+
+
+# =====================================================================
+# Iter 3 — Diagnostics
+# =====================================================================
+
+
+def test_diagnostics_scan_idempotent(client):
+    # warm up a couple of chats so there is audit data
+    for msg in ["Что у нас по ARR?", "Скажи ARR компании", "Политика возвратов?"]:
+        client.post(
+            f"{API}/chat",
+            json={"user_id": "diag", "session_id": f"sess_{uuid.uuid4().hex[:6]}", "message": msg},
+            timeout=120,
+        )
+
+    r1 = client.post(
+        f"{API}/diagnostics/scan",
+        params={"window": 50, "sim_threshold": 0.3, "divergence_threshold": 0.3},
+        timeout=60,
+    )
+    assert r1.status_code == 200, r1.text
+    d1 = r1.json()
+    for key in ["count", "contradictions", "scanned"]:
+        assert key in d1
+    assert d1["count"] >= 0 and d1["scanned"] >= 0
+
+    # rerun — must not crash on dup pair_key
+    r2 = client.post(
+        f"{API}/diagnostics/scan",
+        params={"window": 50, "sim_threshold": 0.3, "divergence_threshold": 0.3},
+        timeout=60,
+    )
+    assert r2.status_code == 200, r2.text
+
+
+def test_diagnostics_contradictions_list(client):
+    r = client.get(f"{API}/diagnostics/contradictions", timeout=15)
+    assert r.status_code == 200
+    d = r.json()
+    assert "count" in d and isinstance(d["contradictions"], list)
+    for item in d["contradictions"]:
+        assert "_id" not in item
+
+
+def test_diagnostics_summary(client):
+    r = client.get(f"{API}/diagnostics/summary", timeout=20)
+    assert r.status_code == 200
+    d = r.json()
+    for key in ["scanned", "avg_confidence", "escalation_rate", "mock_rate", "noisy_intents"]:
+        assert key in d, f"missing {key} in diagnostics summary"
+    assert isinstance(d["noisy_intents"], list)
+
+
+# =====================================================================
+# Iter 3 — Skill Creator
+# =====================================================================
+
+
+def test_skills_scan_no_crash(client):
+    r = client.post(f"{API}/skills/scan", timeout=30)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    # agent currently returns {created: N, skills: [...]}; review_request
+    # description says count=0 is acceptable when no patterns hit threshold.
+    n = d.get("count", d.get("created"))
+    assert n is not None, f"neither count nor created in {d}"
+    assert isinstance(n, int) and n >= 0
+    assert "skills" in d and isinstance(d["skills"], list)
+
+
+def test_skills_create_and_list_and_toggle(client):
+    payload = {
+        "name": f"TEST_skill_{uuid.uuid4().hex[:6]}",
+        "intent": "knowledge",
+        "signature_terms": ["arr", "policy", "refund"],
+        "prompt_template": "Ответь кратко по теме: {query}",
+        "memory_filter": {"type": "corporate"},
+    }
+    r = client.post(f"{API}/skills", json=payload, timeout=15)
+    assert r.status_code == 200, r.text
+    created = r.json()
+    assert "id" in created
+    assert created.get("name", "").startswith("TEST_skill_")
+    skill_id = created["id"]
+
+    # list
+    r2 = client.get(f"{API}/skills", timeout=15)
+    assert r2.status_code == 200
+    d2 = r2.json()
+    assert d2["count"] >= 1
+    ids = [s.get("id") for s in d2["skills"]]
+    assert skill_id in ids
+    for s in d2["skills"]:
+        assert "_id" not in s
+
+    # toggle off
+    r3 = client.post(
+        f"{API}/skills/{skill_id}/toggle", params={"enabled": "false"}, timeout=15
+    )
+    assert r3.status_code == 200, r3.text
+    assert r3.json().get("enabled") in (False, "false", 0)
+
+    # filter enabled=true should NOT include this one now
+    r4 = client.get(f"{API}/skills", params={"enabled": "true"}, timeout=15)
+    assert r4.status_code == 200
+    ids_enabled = [s.get("id") for s in r4.json()["skills"]]
+    assert skill_id not in ids_enabled
+
+    # toggle unknown -> 404
+    r5 = client.post(
+        f"{API}/skills/skill_does_not_exist_xyz/toggle",
+        params={"enabled": "true"}, timeout=15,
+    )
+    assert r5.status_code == 404, r5.text
+
+
+# =====================================================================
+# Iter 3 — Market Radar
+# =====================================================================
+
+
+def test_market_ingest_signal_and_list(client):
+    payload = {
+        "headline": f"TEST_signal NXT8 launches new AI module {uuid.uuid4().hex[:6]}",
+        "source": "pytest",
+        "category": "ai",
+        "url": "https://example.com/news/1",
+        "score": 0.71,
+    }
+    r = client.post(f"{API}/market/signals", json=payload, timeout=15)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert "id" in d
+    assert d.get("headline", "").startswith("TEST_signal")
+
+    r2 = client.get(f"{API}/market/signals", timeout=15)
+    assert r2.status_code == 200
+    d2 = r2.json()
+    assert d2["count"] >= 1
+    for s in d2["signals"]:
+        assert "_id" not in s
+
+
+def test_market_ingest_empty_headline_rejected(client):
+    r = client.post(
+        f"{API}/market/signals",
+        json={"headline": "", "category": "ai"},
+        timeout=15,
+    )
+    assert r.status_code == 400, r.text
+
+
+def test_market_scan_returns_digest(client):
+    r = client.post(
+        f"{API}/market/scan", params={"window_hours": 72}, timeout=90
+    )
+    assert r.status_code == 200, r.text[:300]
+    d = r.json()
+    for key in [
+        "id", "period_hours", "signals_count", "digest",
+        "confidence", "provider", "created_at",
+    ]:
+        assert key in d, f"missing {key} in market scan: {list(d.keys())}"
+    assert isinstance(d["digest"], str) and len(d["digest"]) > 0
+
+
+def test_market_digests_list(client):
+    r = client.get(f"{API}/market/digests", timeout=15)
+    assert r.status_code == 200
+    d = r.json()
+    assert "count" in d and isinstance(d["digests"], list)
+    for item in d["digests"]:
+        assert "_id" not in item
+
