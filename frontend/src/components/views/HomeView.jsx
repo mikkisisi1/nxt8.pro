@@ -21,8 +21,27 @@ function PriorityBadge({ level }) {
   );
 }
 
+const PRIORITY_TEXT_COLOR = {
+  critical: "text-red-300",
+  high: "text-orange-300",
+  medium: "text-blue-300",
+  low: "text-brand-turquoise",
+};
+
+// Profit tiers: turquoise (normal) → orange (medium) → purple (best).
+// Thresholds tuned for live /requests amounts (tokens_total / 4 ≈ 30–250).
+function amountTier(amount) {
+  if (amount >= 100) return "text-purple-400";
+  if (amount >= 50) return "text-orange-500";
+  return "text-brand-turquoise";
+}
+
 function TaskRow({ index, item }) {
   const done = item.status === "done";
+  const titleColor = done
+    ? "text-slate-500"
+    : PRIORITY_TEXT_COLOR[item.priority] || "text-slate-300";
+  const amountColor = amountTier(item.amount);
   return (
     <motion.div
       layout
@@ -50,14 +69,14 @@ function TaskRow({ index, item }) {
         ) : (
           <PriorityBadge level={item.priority} />
         )}
-        <span className="text-slate-300 truncate max-w-[140px]">
+        <span className={`${titleColor} truncate max-w-[140px]`}>
           {item.title}
         </span>
       </div>
       {done ? (
         <div className="text-brand-turquoise/70 italic text-[9px]">done</div>
       ) : (
-        <div className="text-orange-500 font-bold text-[14px]">
+        <div className={`${amountColor} font-bold text-[14px]`}>
           ${item.amount}
         </div>
       )}
