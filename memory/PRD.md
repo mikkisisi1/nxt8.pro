@@ -1,8 +1,8 @@
 # NXT8 — Product Requirements Document
 
-**Version:** 0.1 (MVP build)
+**Version:** 0.2 (MVP + Voice module)
 **Last updated:** 2026-05-16
-**Status:** MVP backend + UI live in MOCK DeepSeek mode
+**Status:** MVP backend + UI live · Voice module (Whisper STT + OpenAI TTS) integrated · DeepSeek still in mock fallback (HTTP 402 — user is topping up balance)
 
 ---
 
@@ -54,7 +54,7 @@ Single FastAPI process on :8001 with /api prefix routes; React on :3000.
 └── index.css                 LED-matrix bg, glass-card, glow, neo-btn
 ```
 
-## 4. Implemented MVP modules (7/14)
+## 4. Implemented modules (8/14)
 
 - ✅ **Core** — FastAPI, MongoDB, supervisor (no PostgreSQL/Redis — emergent constraint)
 - ✅ **Orchestrator** — `POST /api/chat` intent-routing pipeline
@@ -62,11 +62,11 @@ Single FastAPI process on :8001 with /api prefix routes; React on :3000.
 - ✅ **Reliability** — confidence weighted (deepseek 0.5 / source 0.2 / evidence 0.2 / consistency 0.1); contradiction & hallucination check via TF-IDF cosine
 - ✅ **Mentor** — 5 levels (junior/mid/senior/lead/strategist), targets/weights per level, weak patterns (low_accuracy/high_escalation/repeating_errors)
 - ✅ **ROI** — cost tracking ($0.50/1M tokens, $0.05/cpu-hour, $35/h escalation), revenue attribution `1/(days+1)` over 7 days, hourly snapshots, alerts
+- ✅ **Voice** *(2026-05-16)* — Whisper STT + OpenAI TTS via Emergent Universal LLM Key, one-shot `/voice/converse` STT→chat→TTS loop, hold-to-talk MicView with waveform meter
 - ✅ **UI** — 6 views, 1:1 mobile mockup port, data-testids on every interactive element
 
 ## 5. Deferred to next phases
 
-- ⏳ Voice (Whisper + DeepSeek + TTS) — module stub returns 'coming_soon'
 - ⏳ Cross-Department Coordinator (file `install_cross_dept.sh`)
 - ⏳ Skill Creator (file `install_skill_creator.sh`)
 - ⏳ Market Radar (file `install_market_radar.sh`)
@@ -103,25 +103,26 @@ POST  /api/roi/interactions
 
 GET   /api/alerts
 
-POST  /api/voice/stt   (stub)
-POST  /api/voice/tts   (stub)
+POST  /api/voice/stt        (multipart audio → Whisper transcript)
+POST  /api/voice/tts        (JSON {text,voice,speed} → audio/mpeg MP3)
+POST  /api/voice/converse   (multipart audio → STT→orchestrator→TTS, audio_b64 mp3 in JSON)
 ```
 
 ## 7. Current state / test results
 
-- Backend: **19/19 pytest** pass (testing agent iter_1)
-- Frontend: 100% of required flows verified, all 6 views render
-- DeepSeek: **MOCK mode** — self-reported in chat response (`mock: true`)
+- Backend: **25/25 pytest** pass (testing agent iter_2)
+- Frontend: 100% of required flows verified, all 6 views render; MicView wired with MediaRecorder
+- DeepSeek: **MOCK fallback mode** — HTTP 402 from DeepSeek (balance), graceful fallback in `core/deepseek.py`. `/api/health` exposes `deepseek.last_error` and `deepseek.live` for diagnostics
+- Voice: **LIVE** via Emergent Universal LLM Key (`EMERGENT_LLM_KEY` in backend/.env), whisper-1 STT + tts-1 MP3 output verified end-to-end
 - Seed produces 6 corporate memories, 4 employees, 4 deals, weak patterns for Junior Lee
 
 ## 8. Backlog / next tasks
 
-**P0 (when DeepSeek key arrives):**
-- Drop key into `/app/backend/.env` → `DEEPSEEK_API_KEY=...` and restart backend
-- Validate live API: chat content quality, real logprobs → confidence, embeddings (if any)
+**P0 (when DeepSeek balance arrives):**
+- Validate live API: chat content quality, real logprobs → confidence
+- `/api/health` should report `deepseek.live=true` and `last_error=null` after first call
 
 **P1:**
-- Voice module (Whisper STT + DeepSeek + OpenAI TTS via Emergent key for TTS)
 - Cross-Department Coordinator (port `install_cross_dept.sh` to internal module)
 - Diagnostics module (contradiction classifier on logs)
 

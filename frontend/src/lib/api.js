@@ -47,7 +47,7 @@ export const api = {
     if (opts.voice) fd.append("voice", opts.voice);
     return http
       .post("/voice/converse", fd, {
-        headers: { "Content-Type": "multipart/form-data" },
+        headers: { "Content-Type": undefined },
         timeout: 60000,
       })
       .then((r) => r.data);
@@ -59,7 +59,7 @@ export const api = {
     if (opts.language) fd.append("language", opts.language);
     return http
       .post("/voice/stt", fd, {
-        headers: { "Content-Type": "multipart/form-data" },
+        headers: { "Content-Type": undefined },
         timeout: 60000,
       })
       .then((r) => r.data);
