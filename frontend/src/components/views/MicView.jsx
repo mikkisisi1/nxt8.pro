@@ -31,6 +31,39 @@ function filenameFromMime(mime) {
   return "speech.webm";
 }
 
+// Dev-only logger — silenced in production builds so internal failures
+// don't leak to user devtools while preserving debugging signal locally.
+function devError(scope, err) {
+  if (process.env.NODE_ENV !== "production") {
+    // eslint-disable-next-line no-console
+    console.error(`MicView: ${scope}`, err);
+  }
+}
+
+function renderMicIcon({ busy, recording, speaking }) {
+  if (busy) {
+    return (
+      <Loader2
+        className="w-10 h-10 text-brand-turquoise animate-spin"
+        strokeWidth={1.5}
+      />
+    );
+  }
+  if (recording) {
+    return (
+      <Square
+        className="w-9 h-9 text-red-300"
+        strokeWidth={1.5}
+        fill="currentColor"
+      />
+    );
+  }
+  if (speaking) {
+    return <Volume2 className="w-10 h-10 text-brand-turquoise" strokeWidth={1.5} />;
+  }
+  return <Mic className="w-10 h-10 text-brand-turquoise" strokeWidth={1.5} />;
+}
+
 export default function MicView() {
   const [state, setState] = useState(STATES.IDLE);
   const [error, setError] = useState("");
@@ -53,17 +86,17 @@ export default function MicView() {
       try {
         if (rafRef.current) cancelAnimationFrame(rafRef.current);
       } catch (err) {
-        console.error("MicView: cancelAnimationFrame failed", err);
+        devError("cancelAnimationFrame failed", err);
       }
       try {
         streamRef.current?.getTracks().forEach((t) => t.stop());
       } catch (err) {
-        console.error("MicView: stream stop failed", err);
+        devError("stream stop failed", err);
       }
       try {
         audioCtxRef.current?.close();
       } catch (err) {
-        console.error("MicView: audio context close failed", err);
+        devError("audio context close failed", err);
       }
     };
   }, []);
@@ -99,7 +132,7 @@ export default function MicView() {
       tick();
     } catch (err) {
       // meter is non-critical
-      console.error("MicView: audio meter init failed", err);
+      devError("audio meter init failed", err);
     }
   };
 
@@ -133,7 +166,7 @@ export default function MicView() {
     try {
       recorderRef.current?.stop();
     } catch (err) {
-      console.error("MicView: recorder stop failed", err);
+      devError("recorder stop failed", err);
     }
     stopMeter();
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -170,7 +203,7 @@ export default function MicView() {
           try {
             await audioElRef.current.play();
           } catch (err) {
-            console.error("MicView: audio playback failed", err);
+            devError("audio playback failed", err);
             setState(STATES.IDLE);
           }
         } else {
@@ -235,15 +268,7 @@ export default function MicView() {
           className={`absolute inset-0 rounded-full ${recording ? "ring-2 ring-red-400/60" : "ring-1 ring-brand-turquoise/40"}`}
           style={recording ? { boxShadow: `0 0 ${10 + level * 40}px rgba(248,113,113,0.55)` } : undefined}
         />
-        {busy ? (
-          <Loader2 className="w-10 h-10 text-brand-turquoise animate-spin" strokeWidth={1.5} />
-        ) : recording ? (
-          <Square className="w-9 h-9 text-red-300" strokeWidth={1.5} fill="currentColor" />
-        ) : speaking ? (
-          <Volume2 className="w-10 h-10 text-brand-turquoise" strokeWidth={1.5} />
-        ) : (
-          <Mic className="w-10 h-10 text-brand-turquoise" strokeWidth={1.5} />
-        )}
+        {renderMicIcon({ busy, recording, speaking })}
       </button>
 
       <div className="w-full h-12 flex items-end justify-center gap-[3px]" data-testid="voice-waveform">

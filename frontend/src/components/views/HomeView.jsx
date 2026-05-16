@@ -3,6 +3,17 @@ import { ChevronUp, ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import api from "../../lib/api";
 
+// Stable references — declared once at module scope so motion does not see
+// fresh object identities on every render (prevents needless re-evaluation).
+const ROW_INITIAL = { opacity: 0, y: 24, scale: 0.96 };
+const ROW_EXIT = { opacity: 0, x: -40, scale: 0.95 };
+const ROW_TRANSITION = {
+  layout: { type: "spring", stiffness: 380, damping: 32 },
+  opacity: { duration: 0.35 },
+  y: { type: "spring", stiffness: 320, damping: 28 },
+  scale: { duration: 0.3 },
+};
+
 function PriorityBadge({ level }) {
   const map = {
     critical: { color: "text-red-500", mark: "!!", label: "CRITICAL" },
@@ -45,15 +56,10 @@ function TaskRow({ index, item }) {
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, y: 24, scale: 0.96 }}
+      initial={ROW_INITIAL}
       animate={{ opacity: done ? 0.5 : 0.9, y: 0, scale: 1 }}
-      exit={{ opacity: 0, x: -40, scale: 0.95 }}
-      transition={{
-        layout: { type: "spring", stiffness: 380, damping: 32 },
-        opacity: { duration: 0.35 },
-        y: { type: "spring", stiffness: 320, damping: 28 },
-        scale: { duration: 0.3 },
-      }}
+      exit={ROW_EXIT}
+      transition={ROW_TRANSITION}
       className="flex items-center justify-between"
       data-testid={`task-row-${index}`}
     >
@@ -307,8 +313,12 @@ export default function HomeView() {
             key: `live-${r.id}`,
           });
         }
-      } catch {
-        /* network blip — ignore */
+      } catch (err) {
+        // network blip — non-fatal; tasks remain on last known archive
+        if (process.env.NODE_ENV !== "production") {
+          // eslint-disable-next-line no-console
+          console.warn("HomeView: refreshArchive failed", err);
+        }
       }
     };
 

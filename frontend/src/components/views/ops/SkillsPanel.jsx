@@ -110,7 +110,10 @@ export default function SkillsPanel({ onBack }) {
         )
       );
     } catch (err) {
-      console.error("SkillsPanel: toggle failed", err);
+      if (process.env.NODE_ENV !== "production") {
+        // eslint-disable-next-line no-console
+        console.error("SkillsPanel: toggle failed", err);
+      }
     }
   };
 

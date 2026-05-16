@@ -3,15 +3,15 @@ import { Send, RefreshCw, Plus, Bot } from "lucide-react";
 import api from "../../../lib/api";
 import { BackBar, SectionHeader, EmptyHint } from "./widgets";
 
+function statusDotColor(status) {
+  if (status === "online") return "bg-emerald-400";
+  if (status === "degraded") return "bg-yellow-400";
+  if (status === "loading") return "bg-slate-400 animate-pulse";
+  return "bg-red-400";
+}
+
 function StatusDot({ status }) {
-  const color =
-    status === "online"
-      ? "bg-emerald-400"
-      : status === "degraded"
-      ? "bg-yellow-400"
-      : status === "loading"
-      ? "bg-slate-400 animate-pulse"
-      : "bg-red-400";
+  const color = statusDotColor(status);
   return (
     <span
       className={`inline-block w-2 h-2 rounded-full ${color} shadow-[0_0_8px_currentColor]`}
