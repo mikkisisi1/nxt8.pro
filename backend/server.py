@@ -44,6 +44,7 @@ from agents import skill_creator as skills_agent  # noqa: E402
 from agents import market_radar as market_agent  # noqa: E402
 from agents import hermes_proxy as hermes_agent  # noqa: E402
 from agents import hermes_coo as hermes_coo_agent  # noqa: E402
+from nxt8_langgraph_ultra import run_nxt8_ultra  # noqa: E402
 from core.db import close_db, ensure_indexes, get_db  # noqa: E402
 from core.deepseek import get_deepseek  # noqa: E402
 
@@ -941,6 +942,63 @@ async def hermes_daily_digest(req: HermesDigestRequest) -> Dict[str, Any]:
         mode="operational",
         temperature=0.3,
     )
+
+
+# --- Hermes Ultra (LangGraph) ----------------------------------------
+
+
+class HermesUltraRequest(BaseModel):
+    message: str
+    company_id: str = "default"
+    user_id: str = "anonymous"
+    session_id: Optional[str] = None
+    autonomy_level: str = "assistant"  # read_only | assistant | controlled_automation
+
+
+@api.post("/hermes/ultra")
+async def hermes_ultra_endpoint(req: HermesUltraRequest) -> Dict[str, Any]:
+    """Ultra Hermes COO orchestrator (LangGraph supervisor → hermes → tools)."""
+    allowed = {"read_only", "assistant", "controlled_automation"}
+    autonomy = req.autonomy_level if req.autonomy_level in allowed else "assistant"
+    session_id = req.session_id or f"sess_{uuid.uuid4().hex[:12]}"
+    try:
+        result = await run_nxt8_ultra(
+            message=req.message,
+            company_id=req.company_id,
+            user_id=req.user_id,
+            session_id=session_id,
+            autonomy_level=autonomy,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.exception("hermes_ultra failed")
+        return {
+            "success": False,
+            "content": "Извините, произошла ошибка при обработке запроса.",
+            "error": str(e),
+            "thread_id": session_id,
+            "autonomy_level": autonomy,
+        }
+
+    # Persist user + assistant turns into short-term memory (best effort)
+    try:
+        mem = memory_agent.get_memory()
+        await mem.append_message(session_id, "user", req.message)
+        if result.get("content"):
+            await mem.append_message(session_id, "assistant", result["content"])
+    except Exception as mem_err:  # noqa: BLE001
+        logger.warning("memory append failed: %s", mem_err)
+
+    return {
+        "success": True,
+        "content": result.get("content", ""),
+        "autonomy_level": autonomy,
+        "thread_id": result.get("thread_id", session_id),
+        "iterations": result.get("iterations", 0),
+        "confidence": result.get("confidence", 0.7),
+        "tool_traces": result.get("tool_traces") or [],
+        "requires_human_approval": bool(result.get("requires_human_approval")),
+        "fallback": result.get("fallback"),
+    }
 
 
 @api.get("/hermes/jobs")
