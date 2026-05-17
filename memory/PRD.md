@@ -1,8 +1,8 @@
 # NXT8 — Product Requirements Document
 
-**Version:** v1.2.0-hermes-coo (additive over v1.1.0-hermes)
-**Released:** 2026-05-16
-**Status:** ✅ Hermes COO Agent live with function-calling tools (`search_memory`, `create_followup`, `detect_bottlenecks`, `generate_daily_digest`) + multi-tenant `company_id`. См. `CHANGELOG.md`, `ROADMAP.md`, `PILOT_ZERO.md`.
+**Version:** v1.3.0-ultra (additive over v1.2.0-hermes-coo)
+**Released:** 2026-05-17
+**Status:** ✅ Hermes Ultra COO on LangGraph live (10 tools, 3 autonomy levels, critical-action gate). 17/17 backend tests green. См. `CHANGELOG.md`, `ROADMAP.md`, `PILOT_ZERO.md`.
 
 ---
 

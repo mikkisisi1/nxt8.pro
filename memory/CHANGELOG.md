@@ -1,5 +1,27 @@
 # NXT8 — Release Notes
 
+## v1.3.0-ultra — 2026-05-17
+
+**Status:** ✅ Hermes Ultra COO Agent on LangGraph live. 17/17 backend tests green (iter_6.json).
+
+### What changed
+- **LangGraph 1.2.0** installed (+ langchain-core 1.4.0, langgraph-checkpoint, langgraph-prebuilt).
+- New module **`backend/agents/hermes_max_tools_and_coo.py`** — `HERMES_TOOLS` dict with 10 tools:
+  - **Real (5):** `search_memory`, `create_task`, `update_task`, `monitor_sla_violations`, `create_cross_department_bridge`
+  - **Stub (5, `mock=true`):** `generate_communication_summary`, `suggest_next_best_action`, `find_opportunities_in_contact`, `suggest_reply_template`, `evaluate_action_roi`
+  - `hermes_coo_chat()` with strong COO system prompt and explicit ```json {"tool":"name","args":{...}}``` format instruction.
+- New module **`backend/nxt8_langgraph_ultra.py`** — `StateGraph` orchestrator: `supervisor → hermes → tools → human_approval → supervisor`. MAX_ITER=3 + critical-action gate (`create_task`/`update_task`/`create_cross_department_bridge` in `controlled_automation` require human approval). `_extract_tool_calls` regex parses fenced JSON blocks. MemorySaver checkpointer keyed by `thread_id = session_id`.
+- New endpoint **`POST /api/hermes/ultra`** `{message, company_id?, user_id?, session_id?, autonomy_level: read_only|assistant|controlled_automation}` → `{success, content, autonomy_level, thread_id, iterations, confidence, tool_traces[], requires_human_approval, fallback?}`. Persists turns via `memory.append_message`. Invalid `autonomy_level` falls back to `"assistant"`. Graceful fallback to `hermes_coo_chat()` if LangGraph fails.
+- v1.2.0 endpoints (`/api/hermes/chat`, `/api/hermes/daily-digest`) preserved and tested — no regressions.
+- New pytest suite: `/app/backend/tests/test_hermes_ultra.py` (17 tests).
+
+### Known limitations
+- DeepSeek `:free` is non-deterministic about emitting ```json {tool, args}``` blocks; tool execution path is therefore validated via unit tests with crafted assistant content (not solely via LLM behavior).
+- `human_approval` node is a pilot stub — surfaces pending actions but doesn't block for out-of-band signal. Real production approval flow is a P2 backlog item.
+- Hermes gateway (:8642) still offline in preview — Ultra runs purely on DeepSeek + LangGraph (this is by design for the pilot).
+
+---
+
 ## v1.2.0-hermes-coo — 2026-05-16
 
 **Status:** ✅ Hermes upgraded to COO Agent with function-calling and multi-tenant context.
