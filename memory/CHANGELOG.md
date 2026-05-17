@@ -1,5 +1,25 @@
 # NXT8 — Release Notes
 
+## v1.3.3-home-quickchat — 2026-05-17
+
+**Status:** ✅ Third window (agent quick-chat) added to HomeView. ChatPanel extracted for reuse. Lint green.
+
+### What changed
+- New shared component **`/app/frontend/src/components/ChatPanel.jsx`** — extracted the entire SSE streaming chat (state, MessageBubble, input, send, scroll-to-bottom) out of `ChatView.jsx`. Props: `welcomeMessage`, `placeholder`, `heightClassName`, `sessionPrefix`, `testIdPrefix`. Each instance owns an isolated `session_id` so HOME quickchat ≠ CMD console history on the backend.
+- **`ChatView.jsx`** slimmed to a 25-line shell that wraps `ChatPanel` inside `CollapsibleCard` (sessionPrefix `cmd`, height `h-[62vh]`).
+- **`HomeView.jsx`** gets a third card `home-chat-card` (`storageKey="home-chat"`):
+  - Title `agent.quickchat` with `MessageSquare` icon; titleRight `live · streaming`.
+  - Body: `ChatPanel` with compact height `h-[44vh] min-h-[320px]`, sessionPrefix `home`, custom RU welcome message ("Привет. Я NXT8-агент…").
+  - Desktop layout: `lg:col-span-2` — spans full width below the tasks|pipeline 2-col row.
+  - Mobile layout: third card stacked after pipeline, naturally appears as user scrolls down. Verified live e2e: sent "что у нас по ARR?" → got "$4.8 млн… цель $7…" with conf/verified badges.
+
+### UX impact
+- Home no longer leaves blank space below pipeline on tall mobile screens — quick-chat fills it and is one swipe away.
+- Two independent session contexts (home vs cmd) — so a quick question on HOME doesn't pollute the deep conversation in CMD.
+
+---
+
+
 ## v1.3.2-desktop-grid — 2026-05-17
 
 **Status:** ✅ Desktop layout overhaul. Lint green. Mobile parity preserved.

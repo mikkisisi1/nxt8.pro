@@ -1,7 +1,25 @@
 import React, { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { MessageSquare } from "lucide-react";
 import api from "../../lib/api";
 import CollapsibleCard from "../CollapsibleCard";
+import ChatPanel from "../ChatPanel";
+
+const HOME_CHAT_WELCOME = {
+  id: "msg-home-welcome",
+  role: "assistant",
+  content:
+    "Привет. Я NXT8-агент. Спросите про задачи, ROI или сотрудников — отвечу прямо здесь, не покидая дашборд.",
+  meta: {
+    confidence: 0.9,
+    confidence_level: "high",
+    intent: "general",
+    latency_ms: 0,
+    should_escalate: false,
+    verification_status: "verified",
+    mock: false,
+  },
+};
 
 // Stable references — declared once at module scope so motion does not see
 // fresh object identities on every render (prevents needless re-evaluation).
@@ -366,6 +384,32 @@ export default function HomeView() {
     <div className="space-y-4 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-4">
       <TasksCard tasks={tasks} totalValue={totalValue} />
       <PipelineCard snapshot={snapshot} />
+      <div className="lg:col-span-2">
+        <CollapsibleCard
+          storageKey="home-chat"
+          testId="home-chat-card"
+          className="glow-turquoise"
+          title={
+            <span className="text-brand-turquoise font-light text-xs flex items-center gap-2">
+              <MessageSquare className="w-3.5 h-3.5" /> agent.quickchat
+            </span>
+          }
+          titleRight={
+            <span className="text-slate-500 text-[10px] uppercase tracking-widest">
+              live · streaming
+            </span>
+          }
+          bodyClassName="px-4 pb-4 pt-0"
+        >
+          <ChatPanel
+            welcomeMessage={HOME_CHAT_WELCOME}
+            placeholder="Быстрый вопрос агенту…"
+            heightClassName="h-[44vh] min-h-[320px]"
+            sessionPrefix="home"
+            testIdPrefix="home-chat"
+          />
+        </CollapsibleCard>
+      </div>
     </div>
   );
 }
