@@ -1,6 +1,29 @@
 # NXT8 — Release Notes
 
 
+## v1.3.5-code-review-audit — 2026-05-17
+
+**Status:** ℹ️ Code review report audited. **No code changes applied** — all 6 critical/important claims verified as false positives or pre-existing correct patterns. Ruff + ESLint both green.
+
+### Audit results vs. report
+
+| Claim | Verdict | Evidence |
+|---|---|---|
+| "20 undefined Python variables" | ❌ False positive | `ruff check /app/backend` → All checks passed |
+| "23+ missing React hook deps across 6 files" | ❌ False positive | `eslint /app/frontend/src` → No issues found. Listed "missing" deps are module imports (`api`), refs (`audioCtxRef`), local-scope vars (`mounted`, `d`), and constants (`MAX_VISIBLE_TASKS`) — none belong in hook dep arrays. |
+| "LocalStorage security vulnerability in CollapsibleCard" | ❌ False positive | Stores only boolean accordion open/close state. No tokens, PII, or credentials. Correct usage of localStorage. |
+| "4 production console statements" | ❌ Already fixed | All 4 sites (`MicView.jsx:40`, `HomeView.jsx:344`, `SkillsPanel.jsx:115`, `craco.config.js:91`) already wrapped in `if (process.env.NODE_ENV !== "production")` with `eslint-disable-next-line no-console`. craco is build-time. |
+| "Python `is True/False/None` → use `==`" | ❌ Anti-fix | All flagged sites compare to singletons `True`/`False`/`None`. PEP 8 explicitly recommends `is`/`is not` here. Replacing with `==` would degrade style. |
+| "Refactor 13 high-complexity functions/components" | ⏸ Deferred (P3) | Already in backlog as "intentionally deferred to preserve Pilot Zero stability". Affects live LLM pipelines (`route`, `enhanced_chat`, `HomeView`). Will revisit post-pilot. |
+
+### Decision
+- Do nothing. Re-running lints confirms zero real issues. Applying the recommended "fixes" would either be no-ops, introduce infinite re-render loops (adding stable imports to dep arrays), or violate PEP 8.
+- Backlog item P3 (refactor high-complexity functions) remains scheduled for post-Pilot-Zero stabilization phase.
+
+---
+
+
+
 ## v1.3.4-voice-hermes-vad — 2026-05-17
 
 **Status:** ✅ Voice agent overhaul — wired to Hermes COO, voice-channel reply guardrail, frontend VAD auto-submit on silence. Lint green. Live tested via curl loopback (TTS→STT→Hermes→TTS).
