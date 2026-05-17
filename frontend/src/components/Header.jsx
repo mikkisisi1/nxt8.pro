@@ -1,6 +1,8 @@
-import React from "react";
+import React, { useState } from "react";
+import BurgerMenu from "./BurgerMenu";
 
 export default function Header({ aiIndex = 8.1, streakDays = 14 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
   return (
     <>
       <header
@@ -29,7 +31,9 @@ export default function Header({ aiIndex = 8.1, streakDays = 14 }) {
             M
           </div>
           <button
-            className="ml-2 flex flex-col justify-center space-y-1.5 h-6"
+            type="button"
+            onClick={() => setMenuOpen(true)}
+            className="ml-2 flex flex-col justify-center space-y-1.5 h-6 cursor-pointer hover:opacity-80 transition-opacity"
             aria-label="menu"
             data-testid="menu-button"
           >
@@ -53,6 +57,7 @@ export default function Header({ aiIndex = 8.1, streakDays = 14 }) {
           <span className="font-light">{streakDays} d. streak</span>
         </div>
       </div>
+      <BurgerMenu open={menuOpen} onOpenChange={setMenuOpen} />
     </>
   );
 }
