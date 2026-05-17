@@ -255,17 +255,19 @@ export default function OpsView() {
           live · 5 modules
         </span>
       </div>
-      <CrossDeptWidget
-        data={data.crossDept}
-        onOpen={() => setSub("cross-dept")}
-      />
-      <DiagnosticsWidget
-        data={data.diagnostics}
-        onOpen={() => setSub("diagnostics")}
-      />
-      <SkillsWidget data={data.skills} onOpen={() => setSub("skills")} />
-      <MarketWidget data={data.market} onOpen={() => setSub("market")} />
-      <HermesWidget data={data.hermes} onOpen={() => setSub("hermes")} />
+      <div className="space-y-3 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-4">
+        <CrossDeptWidget
+          data={data.crossDept}
+          onOpen={() => setSub("cross-dept")}
+        />
+        <DiagnosticsWidget
+          data={data.diagnostics}
+          onOpen={() => setSub("diagnostics")}
+        />
+        <SkillsWidget data={data.skills} onOpen={() => setSub("skills")} />
+        <MarketWidget data={data.market} onOpen={() => setSub("market")} />
+        <HermesWidget data={data.hermes} onOpen={() => setSub("hermes")} />
+      </div>
     </div>
   );
 }

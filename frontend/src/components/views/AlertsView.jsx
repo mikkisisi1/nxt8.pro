@@ -17,9 +17,10 @@ export default function AlertsView() {
   }, []);
 
   return (
-    <CollapsibleCard
-      storageKey="alerts-feed"
-      testId="alerts-view"
+    <div className="lg:max-w-3xl lg:mx-auto">
+      <CollapsibleCard
+        storageKey="alerts-feed"
+        testId="alerts-view"
       title={
         <span className="text-brand-turquoise font-light text-xs flex items-center gap-2">
           <Bell className="w-3.5 h-3.5" /> alerts.feed
@@ -67,5 +68,6 @@ export default function AlertsView() {
         })}
       </div>
     </CollapsibleCard>
+    </div>
   );
 }

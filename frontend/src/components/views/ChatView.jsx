@@ -223,9 +223,10 @@ export default function ChatView() {
   };
 
   return (
-    <CollapsibleCard
-      storageKey="chat-console"
-      testId="chat-view"
+    <div className="lg:max-w-4xl lg:mx-auto">
+      <CollapsibleCard
+        storageKey="chat-console"
+        testId="chat-view"
       title={
         <span className="text-brand-turquoise font-light text-xs">
           cmd.console
@@ -280,5 +281,6 @@ export default function ChatView() {
         </div>
       </div>
     </CollapsibleCard>
+    </div>
   );
 }

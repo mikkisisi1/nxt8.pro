@@ -3,6 +3,7 @@ import "./App.css";
 import TopTicker from "./components/TopTicker";
 import Header from "./components/Header";
 import BottomNav from "./components/BottomNav";
+import SideNav from "./components/SideNav";
 import HomeView from "./components/views/HomeView";
 import ChatView from "./components/views/ChatView";
 import AgentsView from "./components/views/AgentsView";
@@ -71,33 +72,50 @@ function App() {
       data-testid="app-root"
     >
       <div className="fixed inset-0 led-matrix pointer-events-none -z-10"></div>
-      <div className="shrink-0 z-20" data-testid="app-shell-top">
+
+      {/* Full-width ticker — pinned at very top */}
+      <div className="shrink-0 z-20" data-testid="app-shell-ticker">
         <TopTicker />
-        <div className="max-w-md w-full mx-auto px-4 pt-3">
-          <Header aiIndex={8.1} streakDays={14} />
-          {seedStatus === "error" && (
-            <div
-              className="text-[10px] text-red-400 border border-red-500/30 bg-red-500/5 rounded-md p-2 mt-2"
-              data-testid="seed-error"
-            >
-              backend unreachable — проверьте сервер
+      </div>
+
+      {/* Body row: optional left sidebar (lg+) + main column */}
+      <div className="flex-1 flex min-h-0 overflow-hidden">
+        <SideNav
+          active={view}
+          onChange={setView}
+          alertCount={alertCount}
+        />
+
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          <div
+            className="shrink-0 z-20 w-full max-w-md lg:max-w-screen-2xl mx-auto px-4 lg:px-8 pt-3"
+            data-testid="app-shell-header"
+          >
+            <Header aiIndex={8.1} streakDays={14} />
+            {seedStatus === "error" && (
+              <div
+                className="text-[10px] text-red-400 border border-red-500/30 bg-red-500/5 rounded-md p-2 mt-2"
+                data-testid="seed-error"
+              >
+                backend unreachable — проверьте сервер
+              </div>
+            )}
+          </div>
+
+          <main
+            className="relative z-10 flex-1 overflow-y-auto overscroll-contain w-full max-w-md lg:max-w-screen-2xl mx-auto px-4 lg:px-8"
+            data-testid="main-scroll"
+          >
+            <div className="py-4" data-testid={`view-${view}`}>
+              {renderView()}
             </div>
-          )}
+          </main>
         </div>
       </div>
-      <main
-        className="relative z-10 flex-1 overflow-y-auto overscroll-contain max-w-md w-full mx-auto px-4"
-        data-testid="main-scroll"
-      >
-        <div
-          className="space-y-4 py-4"
-          data-testid={`view-${view}`}
-        >
-          {renderView()}
-        </div>
-      </main>
+
+      {/* Bottom nav — mobile/tablet only; sidebar replaces it on lg+ */}
       <div
-        className="shrink-0 max-w-md w-full mx-auto px-4 pb-2 z-20"
+        className="shrink-0 w-full max-w-md mx-auto px-4 pb-2 z-20 lg:hidden"
         data-testid="app-shell-bottom"
       >
         <BottomNav active={view} onChange={setView} alertCount={alertCount} />

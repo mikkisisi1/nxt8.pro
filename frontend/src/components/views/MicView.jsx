@@ -246,9 +246,10 @@ export default function MicView() {
   });
 
   return (
-    <CollapsibleCard
-      storageKey="mic-voice"
-      testId="mic-view"
+    <div className="lg:max-w-2xl lg:mx-auto">
+      <CollapsibleCard
+        storageKey="mic-voice"
+        testId="mic-view"
       title={
         <span
           className="text-[10px] uppercase tracking-widest text-slate-400"
@@ -328,5 +329,6 @@ export default function MicView() {
         <audio ref={audioElRef} className="hidden" data-testid="voice-audio" />
       </div>
     </CollapsibleCard>
+    </div>
   );
 }

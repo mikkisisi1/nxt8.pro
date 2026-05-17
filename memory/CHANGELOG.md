@@ -1,5 +1,31 @@
 # NXT8 — Release Notes
 
+## v1.3.2-desktop-grid — 2026-05-17
+
+**Status:** ✅ Desktop layout overhaul. Lint green. Mobile parity preserved.
+
+### What changed
+- **App.js** restructured into a 3-row × 2-column shell:
+  - Row 1: `TopTicker` (full viewport width)
+  - Row 2: `<SideNav>` (left, `lg:flex`) + main column (`Header` + scrollable content)
+  - Row 3: `<BottomNav>` (`lg:hidden`)
+  - Content area max-width: `max-w-md` mobile, `max-w-screen-2xl` (1536px) desktop.
+- New component **`/app/frontend/src/components/SideNav.jsx`** — vertical icon-bar (24/28px wide on `lg`/`xl`) mirroring the BottomNav items: HOME, CMD, OPS, AGENTS, MAP, ALERTS, MIC. Active item gets `neo-icon-active` + tinted border. Alerts badge preserved. testIds: `sidenav-<id>`.
+- Per-view grid logic on `lg:`:
+  - HomeView → `lg:grid lg:grid-cols-2 lg:gap-4` (tasks | pipeline)
+  - OpsView widgets → 2-col grid below the `ops.cockpit` strip (5 cards: 2+2+1)
+  - MapView → `roi.map` as `lg:col-span-2` hero, `cost.by_agent` + `roi.trend` as 2-col below
+  - AgentsView → `lg:grid-cols-2` (list left, employee detail snaps right when selected)
+  - AlertsView, ChatView, MicView → single card, width-capped (`lg:max-w-3xl/4xl/2xl`) and centered to avoid stretched single-card lines on wide screens.
+- BottomNav now `lg:hidden`; SideNav `hidden lg:flex`. Verified Playwright at 1440×900: `side-nav` visible, `bottom-nav` hidden; at 420×800 reversed.
+
+### UX impact
+- Wide screens finally use horizontal real estate — Home, OPS, Map fill the dashboard naturally with 2-row × 2-col window arrangement, ticker spans the full top, navigation pinned left as a real cockpit.
+- Mobile parity untested but unchanged by design (`space-y-*` defaults survive, only `lg:` classes added).
+
+---
+
+
 ## v1.3.1-shell-layout — 2026-05-17
 
 **Status:** ✅ App shell layout refactor + collapsible windows. Lint green.

@@ -39,10 +39,14 @@ export default function MapView() {
   );
 
   return (
-    <div className="space-y-3" data-testid="map-view">
+    <div
+      className="space-y-3 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-4"
+      data-testid="map-view"
+    >
       <CollapsibleCard
         storageKey="map-roi"
         testId="map-roi-card"
+        className="lg:col-span-2"
         title={
           <span className="text-brand-turquoise font-light text-xs">
             roi.map · hourly

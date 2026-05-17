@@ -168,7 +168,10 @@ export default function AgentsView() {
   }, []);
 
   return (
-    <div className="space-y-3" data-testid="agents-view">
+    <div
+      className="space-y-3 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-4"
+      data-testid="agents-view"
+    >
       <CollapsibleCard
         storageKey="agents-list"
         testId="agents-list-card"
