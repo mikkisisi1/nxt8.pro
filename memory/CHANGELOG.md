@@ -39,6 +39,12 @@
 - `/api/mempalace/store` + `/api/mempalace/search` round-trip with cosine similarity 0.72 on exact-match recall.
 - Streamed chat about "Mercury Pro / Иван Петров / deadline 30 марта 2026" → automatic drawer in `chats/{session_id}`, recalled by semantic search at similarity 0.76 (entities `Mercury;Pro` auto-extracted by mempalace).
 - Hermes tool surface includes both new tools (verified in `TOOLS` registry); will execute when the Hermes gateway is online — DeepSeek-fallback path still bypasses tool execution by design.
+- **Testing agent iteration_8: 20/20 backend tests green**, incl. 10 concurrent writes, 3 concurrent chat-stream autosaves, full regression.
+
+### Concurrency fix (iter_7 → iter_8)
+- `mempalace 3.3.5` takes an exclusive process-level palace lock per `add_drawer`; 5 parallel writes from the same uvicorn PID gave 1/5 success initially.
+- Bridge now serialises writes with `asyncio.Lock` and retries 4× with linear backoff (100/200/300/400 ms) on `is held by PID` / `lock` errors. 10/10 parallel writes succeed in stress test.
+- Empty content in `POST /api/mempalace/store` now returns **HTTP 400** (was 200 ok:false).
 
 ### Dependencies
 - `+mempalace==3.3.5` (pulls chromadb, onnxruntime, opentelemetry, kubernetes, pydantic-settings…)
