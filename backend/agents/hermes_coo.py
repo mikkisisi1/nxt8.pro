@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional
 from agents import diagnostics as diagnostics_agent
 from agents import hermes_proxy
 from agents import memory as memory_agent
+from agents import mempalace_bridge as mempalace_agent
 from core.db import get_db
 from core.deepseek import get_deepseek
 
@@ -146,6 +147,58 @@ TOOLS: List[Dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "mempalace_search",
+            "description": (
+                "Гибридный семантический поиск в долговременной памяти MemPalace "
+                "(корпоративные клиенты, проекты, история чатов, сотрудники). "
+                "Используй для воспоминания фактов о клиентах/проектах из прошлых сессий."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Поисковый запрос"},
+                    "wing": {
+                        "type": "string",
+                        "description": "Опционально: clients|employees|projects|chats|internal",
+                    },
+                    "room": {"type": "string", "description": "Опционально: id внутри wing"},
+                    "top_k": {"type": "integer", "default": 5},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "mempalace_store",
+            "description": (
+                "Записать важный факт/знание в долговременную память MemPalace. "
+                "Используй когда пользователь сообщил конкретный факт о клиенте/проекте/сотруднике, "
+                "который нужно запомнить надолго."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "content": {"type": "string", "description": "Текст для запоминания"},
+                    "wing": {
+                        "type": "string",
+                        "enum": ["clients", "employees", "projects", "chats", "internal"],
+                        "default": "internal",
+                    },
+                    "room": {
+                        "type": "string",
+                        "description": "id сущности (company_id, user_id, project_id...)",
+                        "default": "general",
+                    },
+                },
+                "required": ["content"],
+            },
+        },
+    },
 ]
 
 
@@ -260,12 +313,43 @@ async def _tool_generate_daily_digest(args: Dict[str, Any]) -> Dict[str, Any]:
         "generated_at": _now(),
     }
 
+async def _tool_mempalace_search(args: Dict[str, Any]) -> Dict[str, Any]:
+    query = (args.get("query") or "").strip()
+    if not query:
+        return {"ok": False, "error": "empty query", "results": []}
+    top_k = int(args.get("top_k") or 5)
+    wing = args.get("wing")
+    room = args.get("room")
+    bridge = mempalace_agent.get_mempalace()
+    results = await bridge.search(query=query, wing=wing, room=room, top_k=top_k)
+    return {"ok": True, "count": len(results), "results": results}
+
+
+async def _tool_mempalace_store(args: Dict[str, Any]) -> Dict[str, Any]:
+    content = (args.get("content") or "").strip()
+    if not content:
+        return {"ok": False, "error": "empty content"}
+    wing = args.get("wing") or "internal"
+    room = args.get("room") or "general"
+    metadata = {
+        "company_id": args.get("company_id"),
+        "via": "hermes_tool",
+    }
+    bridge = mempalace_agent.get_mempalace()
+    return await bridge.store(
+        content=content, wing=wing, room=room, metadata=metadata, source="hermes"
+    )
+
+
+
 
 TOOL_DISPATCH = {
     "search_memory": _tool_search_memory,
     "create_followup": _tool_create_followup,
     "detect_bottlenecks": _tool_detect_bottlenecks,
     "generate_daily_digest": _tool_generate_daily_digest,
+    "mempalace_search": _tool_mempalace_search,
+    "mempalace_store": _tool_mempalace_store,
 }
 
 

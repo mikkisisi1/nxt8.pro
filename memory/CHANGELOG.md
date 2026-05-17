@@ -1,6 +1,56 @@
 # NXT8 — Release Notes
 
 
+## v1.4.0-mempalace — 2026-05-17
+
+**Status:** ✅ MemPalace long-term memory layer integrated natively. Parallel to existing Mongo-backed short-term memory.
+
+### Added
+- **`agents/mempalace_bridge.py`** — async wrapper around `mempalace==3.3.5` (ChromaDB-backed). Functions:
+  - `store(content, wing, room, metadata, source)`
+  - `search(query, wing?, room?, top_k)`
+  - `list_wings()` and `health()`
+  - Singleton `get_mempalace()`
+  - Sync calls run via `asyncio.to_thread` (no event-loop blocking).
+- **REST endpoints** in `server.py`:
+  - `GET  /api/mempalace/health`
+  - `POST /api/mempalace/store`
+  - `POST /api/mempalace/search`
+  - `GET  /api/mempalace/wings`
+- **Auto-save in `/api/chat/stream`** — after each completed stream the (user, assistant) pair is stored fire-and-forget under wing `chats`, room `{session_id}` with intent/user_id metadata. Skipped if either side <12/<20 chars to suppress noise.
+- **Hermes COO tools** (`agents/hermes_coo.py`):
+  - `mempalace_search(query, wing?, room?, top_k)` — semantic recall.
+  - `mempalace_store(content, wing, room)` — explicit save by the agent.
+- **Env vars** (`backend/.env`):
+  - `MEMPALACE_ENABLED=true`
+  - `MEMPALACE_PATH=/app/data/mempalace`
+
+### Wings/Rooms schema (NXT8)
+| Wing | Room | Use |
+|---|---|---|
+| clients | `{company_id}` | corporate clients knowledge |
+| employees | `{user_id}` | individual employee facts |
+| projects | `{project_id}` | project memory |
+| chats | `{session_id}` | long-term chat history (auto-saved) |
+| internal | `general` / topic | company-wide notes |
+
+### Verified live
+- ChromaDB embedding model `all-MiniLM-L6-v2` (79 MB) auto-downloaded on first call.
+- `/api/mempalace/store` + `/api/mempalace/search` round-trip with cosine similarity 0.72 on exact-match recall.
+- Streamed chat about "Mercury Pro / Иван Петров / deadline 30 марта 2026" → automatic drawer in `chats/{session_id}`, recalled by semantic search at similarity 0.76 (entities `Mercury;Pro` auto-extracted by mempalace).
+- Hermes tool surface includes both new tools (verified in `TOOLS` registry); will execute when the Hermes gateway is online — DeepSeek-fallback path still bypasses tool execution by design.
+
+### Dependencies
+- `+mempalace==3.3.5` (pulls chromadb, onnxruntime, opentelemetry, kubernetes, pydantic-settings…)
+- requirements.txt regenerated via `pip freeze`.
+
+### Not changed
+- Short-term Mongo memory (`agents/memory.py`) is preserved as the working session context — MemPalace is a strictly additive long-term layer.
+- Hermes-fallback `_fallback_chat` still goes straight to DeepSeek without tools when the Hermes gateway is offline. Not regressed — pre-existing behavior.
+
+---
+
+
 ## v1.3.5-code-review-audit — 2026-05-17
 
 **Status:** ℹ️ Code review report audited. **No code changes applied** — all 6 critical/important claims verified as false positives or pre-existing correct patterns. Ruff + ESLint both green.

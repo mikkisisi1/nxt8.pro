@@ -44,6 +44,7 @@ from agents import skill_creator as skills_agent  # noqa: E402
 from agents import market_radar as market_agent  # noqa: E402
 from agents import hermes_proxy as hermes_agent  # noqa: E402
 from agents import hermes_coo as hermes_coo_agent  # noqa: E402
+from agents import mempalace_bridge as mempalace_agent  # noqa: E402
 from nxt8_langgraph_ultra import run_nxt8_ultra  # noqa: E402
 from core.db import close_db, ensure_indexes, get_db  # noqa: E402
 from core.deepseek import get_deepseek  # noqa: E402
@@ -383,6 +384,56 @@ async def memory_search(req: MemorySearchRequest) -> Dict[str, Any]:
 async def memory_list(type: Optional[str] = None, limit: int = 100) -> Dict[str, Any]:
     items = await memory_agent.get_memory().list_memories(memory_type=type, limit=limit)
     return {"count": len(items), "items": items}
+
+
+# =====================================================================
+# MemPalace — long-term corporate memory (Wings → Rooms → Drawers)
+# =====================================================================
+
+
+class MemPalaceStoreRequest(BaseModel):
+    content: str
+    wing: str = "internal"
+    room: str = "general"
+    metadata: Optional[Dict[str, Any]] = None
+    source: str = "nxt8"
+
+
+class MemPalaceSearchRequest(BaseModel):
+    query: str
+    wing: Optional[str] = None
+    room: Optional[str] = None
+    top_k: int = 5
+
+
+@api.get("/mempalace/health")
+async def mempalace_health() -> Dict[str, Any]:
+    return await mempalace_agent.get_mempalace().health()
+
+
+@api.post("/mempalace/store")
+async def mempalace_store(req: MemPalaceStoreRequest) -> Dict[str, Any]:
+    return await mempalace_agent.get_mempalace().store(
+        content=req.content,
+        wing=req.wing,
+        room=req.room,
+        metadata=req.metadata,
+        source=req.source,
+    )
+
+
+@api.post("/mempalace/search")
+async def mempalace_search(req: MemPalaceSearchRequest) -> Dict[str, Any]:
+    items = await mempalace_agent.get_mempalace().search(
+        query=req.query, wing=req.wing, room=req.room, top_k=req.top_k
+    )
+    return {"count": len(items), "results": items}
+
+
+@api.get("/mempalace/wings")
+async def mempalace_wings() -> Dict[str, Any]:
+    wings = await mempalace_agent.get_mempalace().list_wings()
+    return {"count": len(wings), "wings": wings}
 
 
 # =====================================================================
@@ -763,6 +814,26 @@ async def chat_stream(req: ChatRequest) -> StreamingResponse:
 
             full = "".join(full_chunks)
             await mem.append_message(session_id, "assistant", full)
+
+            # Long-term memory: store the user/assistant exchange in MemPalace
+            # under chats/{session_id}. Fire-and-forget; never blocks streaming.
+            try:
+                if len(req.message.strip()) >= 12 and len(full.strip()) >= 20:
+                    asyncio.create_task(
+                        mempalace_agent.get_mempalace().store(
+                            content=f"USER: {req.message}\nASSISTANT: {full}",
+                            wing="chats",
+                            room=session_id,
+                            metadata={
+                                "user_id": req.user_id,
+                                "intent": intent,
+                                "channel": "stream",
+                            },
+                            source="chat_stream",
+                        )
+                    )
+            except Exception as _mp_err:  # noqa: BLE001
+                logger.debug("mempalace autosave skipped: %s", _mp_err)
 
             # post-stream reliability
             past = [m["content"] for m in (await mem.get_session(session_id, limit=10))

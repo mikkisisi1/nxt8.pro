@@ -68,6 +68,7 @@ Single FastAPI process on :8001 with /api prefix routes; React on :3000.
 - ✅ **Diagnostics** *(2026-05-16)* — `/api/diagnostics/{scan,contradictions,summary}` TF-IDF contradiction classifier on request audit log; hourly scheduler tick
 - ✅ **Skill Creator** *(2026-05-16)* — `/api/skills/{scan,*,/{id}/toggle}` auto-discovers repeating prompt patterns ≥3 hits @ confidence ≥0.75; manual CRUD
 - ✅ **Market Radar** *(2026-05-16)* — `/api/market/{signals,scan,digests}` ingest market signals + DeepSeek-powered intelligence digest
+- ✅ **MemPalace Long-Term Memory** *(2026-05-17)* — native `mempalace==3.3.5` Python integration via `agents/mempalace_bridge.py`. ChromaDB-backed Wings→Rooms→Drawers store at `/app/data/mempalace/`. REST: `/api/mempalace/{health,store,search,wings}`. Auto-save of user/assistant chat pairs from `/api/chat/stream` into `chats/{session_id}`. Hermes COO gets 2 new tools: `mempalace_search`, `mempalace_store`.
 - ✅ **UI** — 6 views, streaming chat with live token-by-token render + caret animation
 
 ## 5. Deferred to next phases
@@ -129,6 +130,11 @@ POST  /api/market/signals
 GET   /api/market/signals?category=
 POST  /api/market/scan?window_hours=
 GET   /api/market/digests
+
+GET   /api/mempalace/health
+POST  /api/mempalace/store      ({content, wing, room, metadata?, source?})
+POST  /api/mempalace/search     ({query, wing?, room?, top_k?})
+GET   /api/mempalace/wings      (list Wings + Rooms + counts)
 ```
 
 ## 7. Current state / test results
