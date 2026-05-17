@@ -556,6 +556,43 @@ async def voice_tts(req: TTSRequest) -> Response:
         raise HTTPException(status_code=502, detail=f"tts_failed: {e}")
 
 
+VOICE_REPLY_MAX_CHARS = 350
+VOICE_REPLY_MAX_SENTENCES = 3
+VOICE_SYSTEM_HINT = (
+    "ВАЖНО: это голосовой канал. Ответ должен быть КОРОТКИМ — максимум 2-3 предложения, "
+    "разговорным тоном, без markdown, без нумерованных списков, без JSON и без кода. "
+    "Никаких заголовков типа 'Summary' или '1.'. Только живая речь, как будто говоришь вслух."
+)
+
+
+def _trim_for_voice(text: str) -> str:
+    """Strip markdown noise and clamp to a TTS-friendly length."""
+    import re
+
+    if not text:
+        return ""
+    t = text.strip()
+    # Remove fenced code blocks
+    t = re.sub(r"```[\s\S]*?```", " ", t)
+    # Remove markdown emphasis/headers/list markers
+    t = re.sub(r"^[ \t]*#{1,6}\s*", "", t, flags=re.MULTILINE)
+    t = re.sub(r"^[ \t]*[-*•]\s+", "", t, flags=re.MULTILINE)
+    t = re.sub(r"^[ \t]*\d+[\.\)]\s+", "", t, flags=re.MULTILINE)
+    t = t.replace("**", "").replace("__", "").replace("`", "")
+    # Collapse whitespace
+    t = re.sub(r"\s+", " ", t).strip()
+    if not t:
+        return ""
+    # Keep first N sentences
+    parts = re.split(r"(?<=[.!?…])\s+", t)
+    if len(parts) > VOICE_REPLY_MAX_SENTENCES:
+        t = " ".join(parts[:VOICE_REPLY_MAX_SENTENCES]).strip()
+    # Hard cap
+    if len(t) > VOICE_REPLY_MAX_CHARS:
+        t = t[: VOICE_REPLY_MAX_CHARS].rsplit(" ", 1)[0].rstrip(",;:- ") + "…"
+    return t
+
+
 @api.post("/voice/converse")
 async def voice_converse(
     file: UploadFile = File(...),
@@ -563,8 +600,9 @@ async def voice_converse(
     session_id: Optional[str] = Form(None),
     language: Optional[str] = Form(None),
     voice: str = Form("nova"),
+    company_id: Optional[str] = Form(None),
 ) -> Dict[str, Any]:
-    """One-shot voice loop: STT → orchestrator → TTS (base64 mp3)."""
+    """One-shot voice loop: STT → Hermes COO (tools) → trim → TTS (base64 mp3)."""
     import base64
 
     raw = await file.read()
@@ -585,18 +623,53 @@ async def voice_converse(
         raise HTTPException(status_code=422, detail="no speech detected")
 
     sid = session_id or f"sess_{uuid.uuid4().hex[:12]}"
-    chat_resp = await orchestrator_agent.route(
-        user_id=user_id,
-        session_id=sid,
-        message=user_text,
-        channel="voice",
-        context={},
+
+    # Build conversation: prior session memory + voice hint + current turn
+    history: List[Dict[str, Any]] = []
+    try:
+        mem = memory_agent.get_memory()
+        prev = await mem.get_session(sid, limit=6)
+        for m in prev or []:
+            role = m.get("role")
+            content = m.get("content")
+            if role in ("user", "assistant") and content:
+                history.append({"role": role, "content": content})
+    except Exception as mem_err:  # noqa: BLE001
+        logger.warning("voice memory read failed: %s", mem_err)
+
+    messages = (
+        [{"role": "system", "content": VOICE_SYSTEM_HINT}]
+        + history
+        + [{"role": "user", "content": user_text}]
     )
 
-    reply_text = chat_resp.get("content", "")
+    try:
+        chat_resp = await hermes_coo_agent.enhanced_chat(
+            messages=messages,
+            company_id=company_id,
+            user_id=user_id,
+            mode="operational",
+            temperature=0.3,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.exception("voice hermes chat failed: %s", e)
+        raise HTTPException(status_code=502, detail=f"hermes_failed: {e}")
+
+    raw_reply = (chat_resp.get("content") or "").strip()
+    reply_text = _trim_for_voice(raw_reply)
+
+    # Persist to short-term memory (best effort)
+    try:
+        mem = memory_agent.get_memory()
+        await mem.append_message(sid, "user", user_text)
+        if reply_text:
+            await mem.append_message(sid, "assistant", reply_text)
+    except Exception as mem_err:  # noqa: BLE001
+        logger.warning("voice memory append failed: %s", mem_err)
+
     audio_b64: Optional[str] = None
     tts_error: Optional[str] = None
-    if reply_text.strip():
+    if reply_text:
         try:
             audio_bytes = await voice_agent.synthesize(text=reply_text, voice=voice)
             audio_b64 = base64.b64encode(audio_bytes).decode("ascii")
@@ -604,15 +677,20 @@ async def voice_converse(
             logger.exception("converse TTS failed: %s", e)
             tts_error = str(e)
     else:
-        tts_error = "empty_reply_from_orchestrator"
+        tts_error = "empty_reply_from_hermes"
 
     return {
         "session_id": sid,
         "transcript": user_text,
         "language": stt.get("language"),
         "reply": reply_text,
+        "reply_raw": raw_reply if raw_reply != reply_text else None,
         "confidence": chat_resp.get("confidence"),
-        "should_escalate": chat_resp.get("should_escalate", False),
+        "tools_used": [t.get("name") for t in (chat_resp.get("tool_calls") or []) if isinstance(t, dict)],
+        "iterations": chat_resp.get("iterations", 0),
+        "provider": chat_resp.get("provider"),
+        "fallback": chat_resp.get("fallback"),
+        "agent": "hermes_coo",
         "audio_b64": audio_b64,
         "audio_format": "mp3" if audio_b64 else None,
         "tts_error": tts_error,

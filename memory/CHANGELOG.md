@@ -1,5 +1,46 @@
 # NXT8 — Release Notes
 
+
+## v1.3.4-voice-hermes-vad — 2026-05-17
+
+**Status:** ✅ Voice agent overhaul — wired to Hermes COO, voice-channel reply guardrail, frontend VAD auto-submit on silence. Lint green. Live tested via curl loopback (TTS→STT→Hermes→TTS).
+
+### Backend (`server.py`)
+- `/api/voice/converse` rewritten:
+  - Switched LLM call from `orchestrator_agent.route(channel="voice")` → **`hermes_coo_agent.enhanced_chat`** (function-calling COO, OpenRouter primary, DeepSeek fallback).
+  - Loads last 6 messages of the session into the prompt (multi-turn continuity).
+  - Prepends `VOICE_SYSTEM_HINT` ("разговорный тон, без markdown/JSON/списков, 2-3 предложения").
+  - Post-processes reply via new `_trim_for_voice()` helper:
+    - Strips fenced code blocks, markdown headers, list markers, `**` / `__` / backticks.
+    - Collapses whitespace.
+    - Keeps first **3 sentences** max.
+    - Hard cap at **350 chars** with `…` suffix.
+  - Persists user+assistant turn into short-term memory.
+  - New response fields: `reply_raw` (only if trim changed text), `tools_used`, `iterations`, `provider`, `fallback`, `agent: "hermes_coo"`.
+
+### Frontend (`MicView.jsx`)
+- Voice Activity Detection (VAD) added to `startMeter` tick loop:
+  - `SPEECH_THRESHOLD = 0.12` confirms user is speaking → flips `hasSpokenRef`.
+  - `SILENCE_THRESHOLD = 0.06` + `SILENCE_HOLD_MS = 3000` — once user has spoken and stays below silence threshold for 3 s continuously → `autoStoppedRef.current = true` and `stopRecording()` fires automatically.
+  - Auto-stop is one-shot per recording session; manual tap-to-stop still works first.
+- VAD refs reset on every `startRecording()`.
+- Hint text updated: "Whisper (STT) → Hermes COO → OpenAI TTS. … после 3 секунд тишины запрос уйдёт агенту автоматически."
+
+### Verified e2e (live prod URL)
+| Test | Before | After |
+|---|---|---|
+| Short RU converse latency | 9.2 s | **5.9 s** |
+| Long RU converse reply length | ~1500 chars, markdown | **208 chars, 3 sentences** |
+| Long RU converse audio size | ~1.7 MB | **408 KB** |
+| Multi-turn session continuity | ❌ | ✅ |
+
+### Known
+- Hermes Gateway (HTTP proxy) currently unavailable in this environment → `enhanced_chat` exercises its DeepSeek fallback path (`fallback: "deepseek"`, no tool_calls). Reply quality unaffected.
+- VAD requires real microphone — cannot be reproduced in Playwright; needs manual device test.
+
+---
+
+
 ## v1.3.3-home-quickchat — 2026-05-17
 
 **Status:** ✅ Third window (agent quick-chat) added to HomeView. ChatPanel extracted for reuse. Lint green.

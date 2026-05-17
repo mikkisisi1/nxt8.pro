@@ -80,6 +80,13 @@ export default function MicView() {
   const analyserRef = useRef(null);
   const rafRef = useRef(null);
   const audioElRef = useRef(null);
+  // VAD: auto-stop after sustained silence once user has actually spoken
+  const SILENCE_THRESHOLD = 0.06; // input level (0..1) considered "silence"
+  const SPEECH_THRESHOLD = 0.12; // input level that confirms user is speaking
+  const SILENCE_HOLD_MS = 3000; // ms of continuous silence after speech before auto-submit
+  const hasSpokenRef = useRef(false);
+  const silenceStartRef = useRef(null);
+  const autoStoppedRef = useRef(false);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -127,7 +134,26 @@ export default function MicView() {
           sum += v * v;
         }
         const rms = Math.sqrt(sum / data.length);
-        setLevel(Math.min(1, rms * 3));
+        const lvl = Math.min(1, rms * 3);
+        setLevel(lvl);
+
+        // VAD: auto-submit after sustained silence once user has spoken
+        if (!autoStoppedRef.current) {
+          if (lvl >= SPEECH_THRESHOLD) {
+            hasSpokenRef.current = true;
+            silenceStartRef.current = null;
+          } else if (hasSpokenRef.current && lvl < SILENCE_THRESHOLD) {
+            const now = performance.now();
+            if (silenceStartRef.current == null) {
+              silenceStartRef.current = now;
+            } else if (now - silenceStartRef.current >= SILENCE_HOLD_MS) {
+              autoStoppedRef.current = true;
+              try { stopRecording(); } catch (err) { devError("auto-stop failed", err); }
+            }
+          } else if (lvl >= SILENCE_THRESHOLD && lvl < SPEECH_THRESHOLD) {
+            // intermediate level — keep current silence timer running (do nothing)
+          }
+        }
         rafRef.current = requestAnimationFrame(tick);
       };
       tick();
@@ -143,6 +169,10 @@ export default function MicView() {
     setReply("");
     setConfidence(null);
     setState(STATES.REQUESTING);
+    // reset VAD state for a fresh utterance
+    hasSpokenRef.current = false;
+    silenceStartRef.current = null;
+    autoStoppedRef.current = false;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
@@ -323,7 +353,7 @@ export default function MicView() {
         </div>
 
         <div className="text-[10px] text-slate-500 max-w-xs">
-          Whisper (STT) → DeepSeek → OpenAI TTS. Нажмите на микрофон, говорите, нажмите ещё раз — система ответит голосом.
+          Whisper (STT) → Hermes COO → OpenAI TTS. Тапните на микрофон и говорите — после 3 секунд тишины запрос уйдёт агенту автоматически.
         </div>
 
         <audio ref={audioElRef} className="hidden" data-testid="voice-audio" />
