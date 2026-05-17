@@ -66,22 +66,42 @@ function App() {
   };
 
   return (
-    <div className="App led-matrix min-h-screen relative" data-testid="app-root">
+    <div
+      className="App led-matrix h-screen flex flex-col relative overflow-hidden"
+      data-testid="app-root"
+    >
       <div className="fixed inset-0 led-matrix pointer-events-none -z-10"></div>
-      <TopTicker />
-      <main className="relative z-10 p-4 space-y-4 max-w-md mx-auto">
-        <Header aiIndex={8.1} streakDays={14} />
-        {seedStatus === "error" && (
-          <div
-            className="text-[10px] text-red-400 border border-red-500/30 bg-red-500/5 rounded-md p-2"
-            data-testid="seed-error"
-          >
-            backend unreachable — проверьте сервер
-          </div>
-        )}
-        <div data-testid={`view-${view}`}>{renderView()}</div>
-        <BottomNav active={view} onChange={setView} alertCount={alertCount} />
+      <div className="shrink-0 z-20" data-testid="app-shell-top">
+        <TopTicker />
+        <div className="max-w-md w-full mx-auto px-4 pt-3">
+          <Header aiIndex={8.1} streakDays={14} />
+          {seedStatus === "error" && (
+            <div
+              className="text-[10px] text-red-400 border border-red-500/30 bg-red-500/5 rounded-md p-2 mt-2"
+              data-testid="seed-error"
+            >
+              backend unreachable — проверьте сервер
+            </div>
+          )}
+        </div>
+      </div>
+      <main
+        className="relative z-10 flex-1 overflow-y-auto overscroll-contain max-w-md w-full mx-auto px-4"
+        data-testid="main-scroll"
+      >
+        <div
+          className="space-y-4 py-4"
+          data-testid={`view-${view}`}
+        >
+          {renderView()}
+        </div>
       </main>
+      <div
+        className="shrink-0 max-w-md w-full mx-auto px-4 pb-2 z-20"
+        data-testid="app-shell-bottom"
+      >
+        <BottomNav active={view} onChange={setView} alertCount={alertCount} />
+      </div>
     </div>
   );
 }

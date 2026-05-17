@@ -1,5 +1,29 @@
 # NXT8 — Release Notes
 
+## v1.3.1-shell-layout — 2026-05-17
+
+**Status:** ✅ App shell layout refactor + collapsible windows. Lint green.
+
+### What changed
+- **App.js** restructured to `h-screen flex flex-col overflow-hidden`. Top stack (TopTicker + Header + AI_INDEX strip) and bottom stack (BottomNav) are now `shrink-0`; only the middle `<main>` (`flex-1 overflow-y-auto overscroll-contain`) scrolls. The bar between header and bottom nav is now the sole scroll surface — top/bottom never move while content swipes.
+- New shared component **`/app/frontend/src/components/CollapsibleCard.jsx`** — glass-card frame with click-to-toggle header strip, animated `max-height/opacity` body transition, ChevronUp/Down indicator, and `localStorage` persistence under prefix `nxt8.collapse.<key>`. Exposes `storageKey`, `title`, `titleRight`, `bodyClassName`, `testId`, `defaultOpen`.
+- All top-level content sections refactored to use `CollapsibleCard`:
+  - HomeView → `tasks-card` (`home-tasks`), `pipeline-card` (`home-pipeline`)
+  - AgentsView → `agents-list-card` (`agents-list`)
+  - AlertsView → `alerts-view` (`alerts-feed`)
+  - MapView → `map-roi-card`, `map-cost-card`, `map-trend-card`
+  - ChatView → `chat-view` (`chat-console`)
+  - MicView → `mic-view` (`mic-voice`)
+- OpsView widgets intentionally left as navigation buttons (their primary affordance is `onClick → sub-panel`, not info collapse).
+- Toggle test IDs follow pattern `<testId>-toggle`. Card root carries `data-collapsed="true|false"` for assertions.
+
+### UX impact
+- Sticky shell: ticker + NXT8 logo + AI_INDEX strip and the bottom nav stay pinned while users scroll long content. Verified via Playwright: after scrolling 400px inside OPS, `top-ticker` and `bottom-nav` both report `is_visible() === true`.
+- Collapse state persists across reloads (verified: collapsing `tasks-card`, reloading, `data-collapsed` still `"true"`).
+
+---
+
+
 ## v1.3.0-ultra — 2026-05-17
 
 **Status:** ✅ Hermes Ultra COO Agent on LangGraph live. 17/17 backend tests green (iter_6.json).

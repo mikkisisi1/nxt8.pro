@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import api from "../../lib/api";
+import CollapsibleCard from "../CollapsibleCard";
 
 function StatCard({ label, value, accent = "text-brand-turquoise", testId }) {
   return (
@@ -39,85 +40,104 @@ export default function MapView() {
 
   return (
     <div className="space-y-3" data-testid="map-view">
-      <section className="glass-card rounded-2xl window-border glow-turquoise-subtle p-4 space-y-3">
-        <div className="flex justify-between items-center">
+      <CollapsibleCard
+        storageKey="map-roi"
+        testId="map-roi-card"
+        title={
           <span className="text-brand-turquoise font-light text-xs">
             roi.map · hourly
           </span>
+        }
+        titleRight={
           <span className="text-slate-500 text-[10px] uppercase tracking-widest">
             {snap?.alert ? "ALERT" : "stable"}
           </span>
-        </div>
-        <div className="grid grid-cols-3 gap-2">
-          <StatCard
-            label="ROI/h"
-            value={fmtPct(snap?.roi)}
-            accent={
-              snap?.roi != null && snap.roi < 0
-                ? "text-orange-400"
-                : "text-brand-turquoise"
-            }
-            testId="roi-card"
-          />
-          <StatCard
-            label="Cost"
-            value={fmtUsd(snap?.total_cost)}
-            accent="text-orange-400"
-            testId="cost-card"
-          />
-          <StatCard
-            label="Revenue"
-            value={fmtUsd(snap?.total_revenue)}
-            accent="text-emerald-400"
-            testId="rev-card"
-          />
-        </div>
-        {snap?.alert && (
-          <div
-            className="border border-orange-500/30 bg-orange-500/5 rounded-md p-2 text-[11px] text-orange-300"
-            data-testid="roi-alert"
-          >
-            {snap.alert}
+        }
+      >
+        <div className="space-y-3">
+          <div className="grid grid-cols-3 gap-2">
+            <StatCard
+              label="ROI/h"
+              value={fmtPct(snap?.roi)}
+              accent={
+                snap?.roi != null && snap.roi < 0
+                  ? "text-orange-400"
+                  : "text-brand-turquoise"
+              }
+              testId="roi-card"
+            />
+            <StatCard
+              label="Cost"
+              value={fmtUsd(snap?.total_cost)}
+              accent="text-orange-400"
+              testId="cost-card"
+            />
+            <StatCard
+              label="Revenue"
+              value={fmtUsd(snap?.total_revenue)}
+              accent="text-emerald-400"
+              testId="rev-card"
+            />
           </div>
-        )}
-      </section>
-
-      <section className="glass-card rounded-2xl window-border p-4 space-y-2">
-        <div className="text-brand-turquoise font-light text-xs">
-          cost.by_agent
-        </div>
-        {byAgentCost.length === 0 && (
-          <div className="text-slate-500 text-xs">нет данных за час</div>
-        )}
-        {byAgentCost.map(([agent, amount]) => {
-          const max = byAgentCost[0][1] || 1;
-          const w = Math.min(100, (amount / max) * 100);
-          return (
-            <div key={agent} data-testid={`bar-${agent}`}>
-              <div className="flex justify-between text-[11px] text-slate-300">
-                <span>{agent}</span>
-                <span className="text-orange-400">${amount.toFixed(2)}</span>
-              </div>
-              <div className="h-1.5 bg-white/5 rounded-full overflow-hidden mt-1">
-                <div
-                  className="h-full bg-gradient-to-r from-brand-turquoise to-orange-400 rounded-full"
-                  style={{ width: `${w}%` }}
-                ></div>
-              </div>
+          {snap?.alert && (
+            <div
+              className="border border-orange-500/30 bg-orange-500/5 rounded-md p-2 text-[11px] text-orange-300"
+              data-testid="roi-alert"
+            >
+              {snap.alert}
             </div>
-          );
-        })}
-      </section>
+          )}
+        </div>
+      </CollapsibleCard>
 
-      <section className="glass-card rounded-2xl window-border p-4">
-        <div className="flex justify-between items-center mb-2">
+      <CollapsibleCard
+        storageKey="map-cost"
+        testId="map-cost-card"
+        title={
+          <span className="text-brand-turquoise font-light text-xs">
+            cost.by_agent
+          </span>
+        }
+      >
+        <div className="space-y-2">
+          {byAgentCost.length === 0 && (
+            <div className="text-slate-500 text-xs">нет данных за час</div>
+          )}
+          {byAgentCost.map(([agent, amount]) => {
+            const max = byAgentCost[0][1] || 1;
+            const w = Math.min(100, (amount / max) * 100);
+            return (
+              <div key={agent} data-testid={`bar-${agent}`}>
+                <div className="flex justify-between text-[11px] text-slate-300">
+                  <span>{agent}</span>
+                  <span className="text-orange-400">${amount.toFixed(2)}</span>
+                </div>
+                <div className="h-1.5 bg-white/5 rounded-full overflow-hidden mt-1">
+                  <div
+                    className="h-full bg-gradient-to-r from-brand-turquoise to-orange-400 rounded-full"
+                    style={{ width: `${w}%` }}
+                  ></div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </CollapsibleCard>
+
+      <CollapsibleCard
+        storageKey="map-trend"
+        testId="map-trend-card"
+        title={
           <span className="text-brand-turquoise font-light text-xs">
             roi.trend · 24h
           </span>
+        }
+        titleRight={
           <span className="text-slate-500 text-[10px]">
             {trend.length} hours
           </span>
-        </div>
+        }
+      >
         <div className="flex items-end gap-0.5 h-20" data-testid="roi-trend-bars">
           {trend.length === 0 && (
             <div className="text-slate-500 text-xs">накапливаю данные…</div>
@@ -140,7 +160,7 @@ export default function MapView() {
               );
             })}
         </div>
-      </section>
+      </CollapsibleCard>
     </div>
   );
 }

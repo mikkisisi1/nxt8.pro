@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Send, ShieldCheck, AlertTriangle } from "lucide-react";
 import api from "../../lib/api";
+import CollapsibleCard from "../CollapsibleCard";
 
 function confidenceClass(level) {
   if (level === "high") return "confidence-high";
@@ -222,56 +223,62 @@ export default function ChatView() {
   };
 
   return (
-    <section
-      className="glass-card rounded-2xl window-border glow-turquoise-subtle p-4 flex flex-col h-[68vh] min-h-[480px]"
-      data-testid="chat-view"
-    >
-      <div className="flex justify-between items-center pb-3 border-b border-white/5 mb-3">
+    <CollapsibleCard
+      storageKey="chat-console"
+      testId="chat-view"
+      title={
         <span className="text-brand-turquoise font-light text-xs">
           cmd.console
         </span>
+      }
+      titleRight={
         <span className="text-slate-500 text-[10px] uppercase tracking-widest">
           session {sessionRef.current.slice(-6)}
         </span>
-      </div>
-
+      }
+      bodyClassName="px-4 pb-4 pt-0"
+    >
       <div
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto no-scrollbar space-y-3 pr-1"
-        data-testid="chat-messages"
+        className="flex flex-col h-[62vh] min-h-[420px]"
       >
-        {messages.map((m, i) => (
-          <MessageBubble key={m.id || `msg-${i}`} msg={m} />
-        ))}
-        {loading && messages[messages.length - 1]?.meta?.streaming && !messages[messages.length - 1]?.content && (
-          <div className="flex justify-start">
-            <div className="bubble-ai rounded-2xl px-4 py-3 text-xs text-slate-400">
-              думаю<span className="animate-pulse">…</span>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="mt-3 pt-3 border-t border-white/5 flex items-center gap-2">
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={onKey}
-          placeholder="Спросите NXT8…"
-          className="flex-1 bg-brand-dark/60 border border-white/10 rounded-full px-4 py-2.5 text-xs text-slate-200 placeholder:text-slate-600 outline-none focus:border-brand-turquoise/50"
-          data-testid="chat-input"
-        />
-        <button
-          onClick={send}
-          disabled={loading || !input.trim()}
-          className="neo-btn rounded-full p-2.5 text-brand-turquoise disabled:opacity-40"
-          data-testid="chat-send"
-          aria-label="send"
+        <div
+          ref={scrollRef}
+          className="flex-1 overflow-y-auto no-scrollbar space-y-3 pr-1"
+          data-testid="chat-messages"
         >
-          <Send className="w-4 h-4" />
-        </button>
+          {messages.map((m, i) => (
+            <MessageBubble key={m.id || `msg-${i}`} msg={m} />
+          ))}
+          {loading && messages[messages.length - 1]?.meta?.streaming && !messages[messages.length - 1]?.content && (
+            <div className="flex justify-start">
+              <div className="bubble-ai rounded-2xl px-4 py-3 text-xs text-slate-400">
+                думаю<span className="animate-pulse">…</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-3 pt-3 border-t border-white/5 flex items-center gap-2">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={onKey}
+            placeholder="Спросите NXT8…"
+            className="flex-1 bg-brand-dark/60 border border-white/10 rounded-full px-4 py-2.5 text-xs text-slate-200 placeholder:text-slate-600 outline-none focus:border-brand-turquoise/50"
+            data-testid="chat-input"
+          />
+          <button
+            onClick={send}
+            disabled={loading || !input.trim()}
+            className="neo-btn rounded-full p-2.5 text-brand-turquoise disabled:opacity-40"
+            data-testid="chat-send"
+            aria-label="send"
+          >
+            <Send className="w-4 h-4" />
+          </button>
+        </div>
       </div>
-    </section>
+    </CollapsibleCard>
   );
 }

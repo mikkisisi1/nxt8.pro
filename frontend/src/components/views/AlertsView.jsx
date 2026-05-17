@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Bell, AlertTriangle, Info } from "lucide-react";
 import api from "../../lib/api";
+import CollapsibleCard from "../CollapsibleCard";
 
 const SEV_STYLE = {
   critical: { color: "text-red-400", border: "border-red-500/40", icon: AlertTriangle },
@@ -16,19 +17,20 @@ export default function AlertsView() {
   }, []);
 
   return (
-    <section
-      className="glass-card rounded-2xl window-border glow-turquoise-subtle p-4 space-y-3"
-      data-testid="alerts-view"
-    >
-      <div className="flex justify-between items-center">
+    <CollapsibleCard
+      storageKey="alerts-feed"
+      testId="alerts-view"
+      title={
         <span className="text-brand-turquoise font-light text-xs flex items-center gap-2">
           <Bell className="w-3.5 h-3.5" /> alerts.feed
         </span>
+      }
+      titleRight={
         <span className="text-slate-500 text-[10px] uppercase tracking-widest">
           {alerts.length} events
         </span>
-      </div>
-
+      }
+    >
       <div className="space-y-2">
         {alerts.length === 0 && (
           <div className="text-slate-500 text-xs text-center py-8">
@@ -64,6 +66,6 @@ export default function AlertsView() {
           );
         })}
       </div>
-    </section>
+    </CollapsibleCard>
   );
 }

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ChevronUp, ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import api from "../../lib/api";
+import CollapsibleCard from "../CollapsibleCard";
 
 // Stable references — declared once at module scope so motion does not see
 // fresh object identities on every render (prevents needless re-evaluation).
@@ -92,24 +92,24 @@ function TaskRow({ index, item }) {
 
 function TasksCard({ tasks, totalValue }) {
   return (
-    <section
-      className="glass-card rounded-2xl p-5 glow-turquoise window-border min-h-[260px] flex flex-col justify-between"
-      data-testid="tasks-card"
-    >
-      <div>
-        <div className="flex justify-between items-center mb-5">
-          <div className="flex items-center space-x-2 text-xs">
-            <span className="text-brand-turquoise font-light">tasks.nxt</span>
-            <span className="text-slate-500">—</span>
-            <span className="text-orange-400 font-light">${totalValue}</span>
-          </div>
-          <div className="flex items-center space-x-2">
-            <span className="text-orange-400 text-xs font-light">
-              {tasks.filter((t) => t.status !== "done").length} tasks
-            </span>
-            <ChevronUp className="w-4 h-4 text-slate-400" />
-          </div>
+    <CollapsibleCard
+      storageKey="home-tasks"
+      testId="tasks-card"
+      className="glow-turquoise"
+      title={
+        <div className="flex items-center space-x-2 text-xs">
+          <span className="text-brand-turquoise font-light">tasks.nxt</span>
+          <span className="text-slate-500">—</span>
+          <span className="text-orange-400 font-light">${totalValue}</span>
         </div>
+      }
+      titleRight={
+        <span className="text-orange-400 text-xs font-light">
+          {tasks.filter((t) => t.status !== "done").length} tasks
+        </span>
+      }
+    >
+      <div className="flex flex-col justify-between min-h-[220px]">
         <div className="relative overflow-hidden h-[150px]">
           <div className="text-[11px] tracking-tight space-y-2.5">
             <AnimatePresence initial={false} mode="popLayout">
@@ -119,19 +119,19 @@ function TasksCard({ tasks, totalValue }) {
             </AnimatePresence>
           </div>
         </div>
-      </div>
-      <div className="mt-5 flex items-center justify-between border-t border-white/5 pt-4">
-        <div className="flex items-center space-x-3 text-slate-500 text-xs">
-          <span className="font-light">› New task…</span>
+        <div className="mt-5 flex items-center justify-between border-t border-white/5 pt-4">
+          <div className="flex items-center space-x-3 text-slate-500 text-xs">
+            <span className="font-light">› New task…</span>
+          </div>
+          <button
+            className="text-brand-turquoise text-[10px] font-bold px-4 py-1 rounded-lg uppercase tracking-widest neo-btn"
+            data-testid="tasks-run-button"
+          >
+            RUN
+          </button>
         </div>
-        <button
-          className="text-brand-turquoise text-[10px] font-bold px-4 py-1 rounded-lg uppercase tracking-widest neo-btn"
-          data-testid="tasks-run-button"
-        >
-          RUN
-        </button>
       </div>
-    </section>
+    </CollapsibleCard>
   );
 }
 
@@ -142,84 +142,90 @@ function PipelineCard({ snapshot }) {
   const revenue = snapshot?.total_revenue?.toFixed(2) ?? "0.00";
 
   return (
-    <section
-      className="glass-card rounded-2xl p-5 glow-turquoise window-border min-h-[260px] flex flex-col"
-      data-testid="pipeline-card"
-    >
-      <div className="flex justify-between items-center mb-2">
-        <div className="flex items-center space-x-3">
-          <span className="text-slate-500 text-[10px] font-light tracking-tight">
-            // ai_index.growth
-          </span>
-        </div>
-        <div className="flex items-center bg-brand-dark/50 rounded-lg p-0.5 border border-white/10 text-[9px] text-slate-400">
+    <CollapsibleCard
+      storageKey="home-pipeline"
+      testId="pipeline-card"
+      className="glow-turquoise"
+      title={
+        <span className="text-slate-500 text-[10px] font-light tracking-tight">
+          // ai_index.growth
+        </span>
+      }
+      titleRight={
+        <div
+          className="flex items-center bg-brand-dark/50 rounded-lg p-0.5 border border-white/10 text-[9px] text-slate-400"
+          onClick={(e) => e.stopPropagation()}
+        >
           <button className="px-2 py-1 rounded-md">7d</button>
           <button className="px-3 py-1 rounded-md text-white font-bold neo-btn">
             30d
           </button>
           <button className="px-2 py-1 rounded-md">90d</button>
         </div>
-      </div>
-      <div className="flex-grow relative overflow-hidden rounded-lg flex items-center justify-center p-2">
-        <div className="w-full flex flex-col items-center justify-center space-y-6 py-2">
-          <div className="flex items-center w-full max-w-sm relative gap-2">
-            <div className="z-10 px-3 py-2 rounded-lg border border-white/10 bg-brand-dark/40 text-[10px] text-slate-400 uppercase tracking-widest">
-              Ingest
-            </div>
-            <div className="pipe-line relative flex-1 h-4 flex items-center">
-              <div className="w-full border-t border-dashed border-brand-turquoise/40"></div>
-              <span className="pipe-dot" aria-hidden="true"></span>
-              <span className="pipe-dot pipe-dot--delayed" aria-hidden="true"></span>
-            </div>
-            <div className="z-10 px-5 py-2 rounded-lg border bg-brand-turquoise/10 text-[10px] text-brand-turquoise uppercase tracking-widest pipe-model-pulse">
-              Model
-            </div>
-            <div className="pipe-line relative flex-1 h-4 flex items-center">
-              <div className="w-full border-t border-dashed border-brand-turquoise/40"></div>
-              <span className="pipe-dot" aria-hidden="true"></span>
-              <span className="pipe-dot pipe-dot--delayed" aria-hidden="true"></span>
-            </div>
-            <div className="z-10 px-3 py-2 rounded-lg border border-white/10 bg-brand-dark/40 text-[10px] text-slate-400 uppercase tracking-widest">
-              Output
-            </div>
-          </div>
-          <div className="w-full grid grid-cols-3 gap-3 text-center pt-2">
-            <div className="border border-white/5 rounded-lg p-2">
-              <div className="text-[9px] text-slate-500 uppercase">ROI/h</div>
-              <div
-                className="text-brand-turquoise text-sm font-bold"
-                data-testid="pipeline-roi"
-              >
-                {roiPct}
+      }
+    >
+      <div className="flex flex-col min-h-[220px]">
+        <div className="flex-grow relative overflow-hidden rounded-lg flex items-center justify-center p-2">
+          <div className="w-full flex flex-col items-center justify-center space-y-6 py-2">
+            <div className="flex items-center w-full max-w-sm relative gap-2">
+              <div className="z-10 px-3 py-2 rounded-lg border border-white/10 bg-brand-dark/40 text-[10px] text-slate-400 uppercase tracking-widest">
+                Ingest
+              </div>
+              <div className="pipe-line relative flex-1 h-4 flex items-center">
+                <div className="w-full border-t border-dashed border-brand-turquoise/40"></div>
+                <span className="pipe-dot" aria-hidden="true"></span>
+                <span className="pipe-dot pipe-dot--delayed" aria-hidden="true"></span>
+              </div>
+              <div className="z-10 px-5 py-2 rounded-lg border bg-brand-turquoise/10 text-[10px] text-brand-turquoise uppercase tracking-widest pipe-model-pulse">
+                Model
+              </div>
+              <div className="pipe-line relative flex-1 h-4 flex items-center">
+                <div className="w-full border-t border-dashed border-brand-turquoise/40"></div>
+                <span className="pipe-dot" aria-hidden="true"></span>
+                <span className="pipe-dot pipe-dot--delayed" aria-hidden="true"></span>
+              </div>
+              <div className="z-10 px-3 py-2 rounded-lg border border-white/10 bg-brand-dark/40 text-[10px] text-slate-400 uppercase tracking-widest">
+                Output
               </div>
             </div>
-            <div className="border border-white/5 rounded-lg p-2">
-              <div className="text-[9px] text-slate-500 uppercase">Cost</div>
-              <div
-                className="text-orange-400 text-sm font-bold"
-                data-testid="pipeline-cost"
-              >
-                ${cost}
+            <div className="w-full grid grid-cols-3 gap-3 text-center pt-2">
+              <div className="border border-white/5 rounded-lg p-2">
+                <div className="text-[9px] text-slate-500 uppercase">ROI/h</div>
+                <div
+                  className="text-brand-turquoise text-sm font-bold"
+                  data-testid="pipeline-roi"
+                >
+                  {roiPct}
+                </div>
               </div>
-            </div>
-            <div className="border border-white/5 rounded-lg p-2">
-              <div className="text-[9px] text-slate-500 uppercase">Rev</div>
-              <div
-                className="text-emerald-400 text-sm font-bold"
-                data-testid="pipeline-revenue"
-              >
-                ${revenue}
+              <div className="border border-white/5 rounded-lg p-2">
+                <div className="text-[9px] text-slate-500 uppercase">Cost</div>
+                <div
+                  className="text-orange-400 text-sm font-bold"
+                  data-testid="pipeline-cost"
+                >
+                  ${cost}
+                </div>
+              </div>
+              <div className="border border-white/5 rounded-lg p-2">
+                <div className="text-[9px] text-slate-500 uppercase">Rev</div>
+                <div
+                  className="text-emerald-400 text-sm font-bold"
+                  data-testid="pipeline-revenue"
+                >
+                  ${revenue}
+                </div>
               </div>
             </div>
           </div>
         </div>
+        <div className="border-t border-white/5 pt-3 text-center">
+          <span className="font-light tracking-widest uppercase text-brand-turquoise text-[9px] animate-flicker">
+            NXT8 → MONEY EVERY MINUTE | 24/7
+          </span>
+        </div>
       </div>
-      <div className="border-t border-white/5 pt-3 text-center">
-        <span className="font-light tracking-widest uppercase text-brand-turquoise text-[9px] animate-flicker">
-          NXT8 → MONEY EVERY MINUTE | 24/7
-        </span>
-      </div>
-    </section>
+    </CollapsibleCard>
   );
 }
 

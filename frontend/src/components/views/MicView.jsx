@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Mic, Square, Loader2, Volume2, AlertTriangle } from "lucide-react";
 import api from "../../lib/api";
+import CollapsibleCard from "../CollapsibleCard";
 
 const STATES = {
   IDLE: "idle",
@@ -245,76 +246,87 @@ export default function MicView() {
   });
 
   return (
-    <section
-      className="glass-card rounded-2xl window-border glow-turquoise-subtle p-6 flex flex-col items-center text-center space-y-5 min-h-[460px]"
-      data-testid="mic-view"
-    >
-      <div className="w-full flex items-center justify-between text-[10px] uppercase tracking-widest text-slate-400">
-        <span data-testid="voice-status">{statusLabel}</span>
-        <span className="text-brand-turquoise/80">voice.module · whisper · tts</span>
-      </div>
-
-      <button
-        onClick={onMainClick}
-        disabled={busy || speaking}
-        data-testid="mic-button"
-        aria-label={recording ? "Остановить запись" : "Начать запись"}
-        className={`relative w-28 h-28 rounded-full flex items-center justify-center transition-all
-          ${recording ? "neo-icon-active animate-glow" : "neo-icon-active"}
-          ${busy || speaking ? "opacity-60 cursor-not-allowed" : "hover:scale-[1.03] active:scale-[0.98]"}
-        `}
-      >
+    <CollapsibleCard
+      storageKey="mic-voice"
+      testId="mic-view"
+      title={
         <span
-          className={`absolute inset-0 rounded-full ${recording ? "ring-2 ring-red-400/60" : "ring-1 ring-brand-turquoise/40"}`}
-          style={recording ? { boxShadow: `0 0 ${10 + level * 40}px rgba(248,113,113,0.55)` } : undefined}
-        />
-        {renderMicIcon({ busy, recording, speaking })}
-      </button>
-
-      <div className="w-full h-12 flex items-end justify-center gap-[3px]" data-testid="voice-waveform">
-        {bars.map((h, i) => (
+          className="text-[10px] uppercase tracking-widest text-slate-400"
+          data-testid="voice-status"
+        >
+          {statusLabel}
+        </span>
+      }
+      titleRight={
+        <span className="text-[10px] uppercase tracking-widest text-brand-turquoise/80">
+          voice.module · whisper · tts
+        </span>
+      }
+      bodyClassName="px-6 pb-6 pt-2"
+    >
+      <div className="flex flex-col items-center text-center space-y-5">
+        <button
+          onClick={onMainClick}
+          disabled={busy || speaking}
+          data-testid="mic-button"
+          aria-label={recording ? "Остановить запись" : "Начать запись"}
+          className={`relative w-28 h-28 rounded-full flex items-center justify-center transition-all
+            ${recording ? "neo-icon-active animate-glow" : "neo-icon-active"}
+            ${busy || speaking ? "opacity-60 cursor-not-allowed" : "hover:scale-[1.03] active:scale-[0.98]"}
+          `}
+        >
           <span
-            key={`bar-${i}`}
-            className={`w-[3px] rounded-full ${recording ? "bg-brand-turquoise" : "bg-brand-turquoise/30"}`}
-            style={{ height: `${Math.round(h * 100)}%`, transition: "height 80ms linear" }}
+            className={`absolute inset-0 rounded-full ${recording ? "ring-2 ring-red-400/60" : "ring-1 ring-brand-turquoise/40"}`}
+            style={recording ? { boxShadow: `0 0 ${10 + level * 40}px rgba(248,113,113,0.55)` } : undefined}
           />
-        ))}
-      </div>
+          {renderMicIcon({ busy, recording, speaking })}
+        </button>
 
-      <div className="w-full text-left space-y-3" data-testid="voice-result">
-        {transcript && (
-          <div className="rounded-lg border border-brand-turquoise/15 bg-black/30 p-3">
-            <div className="text-[10px] uppercase tracking-widest text-slate-500 mb-1">You said</div>
-            <div className="text-slate-200 text-sm" data-testid="voice-transcript">{transcript}</div>
-          </div>
-        )}
-        {reply && (
-          <div className="rounded-lg border border-brand-turquoise/25 bg-brand-turquoise/[0.04] p-3">
-            <div className="text-[10px] uppercase tracking-widest text-brand-turquoise/80 mb-1 flex justify-between">
-              <span>NXT8</span>
-              {confidence !== null && (
-                <span data-testid="voice-confidence">conf {(confidence * 100).toFixed(0)}%</span>
-              )}
+        <div className="w-full h-12 flex items-end justify-center gap-[3px]" data-testid="voice-waveform">
+          {bars.map((h, i) => (
+            <span
+              key={`bar-${i}`}
+              className={`w-[3px] rounded-full ${recording ? "bg-brand-turquoise" : "bg-brand-turquoise/30"}`}
+              style={{ height: `${Math.round(h * 100)}%`, transition: "height 80ms linear" }}
+            />
+          ))}
+        </div>
+
+        <div className="w-full text-left space-y-3" data-testid="voice-result">
+          {transcript && (
+            <div className="rounded-lg border border-brand-turquoise/15 bg-black/30 p-3">
+              <div className="text-[10px] uppercase tracking-widest text-slate-500 mb-1">You said</div>
+              <div className="text-slate-200 text-sm" data-testid="voice-transcript">{transcript}</div>
             </div>
-            <div className="text-slate-100 text-sm whitespace-pre-wrap" data-testid="voice-reply">{reply}</div>
-          </div>
-        )}
-        {error && (
-          <div
-            className="rounded-lg border border-red-500/30 bg-red-500/5 p-3 flex items-start gap-2 text-red-300 text-xs"
-            data-testid="voice-error"
-          >
-            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
-      </div>
+          )}
+          {reply && (
+            <div className="rounded-lg border border-brand-turquoise/25 bg-brand-turquoise/[0.04] p-3">
+              <div className="text-[10px] uppercase tracking-widest text-brand-turquoise/80 mb-1 flex justify-between">
+                <span>NXT8</span>
+                {confidence !== null && (
+                  <span data-testid="voice-confidence">conf {(confidence * 100).toFixed(0)}%</span>
+                )}
+              </div>
+              <div className="text-slate-100 text-sm whitespace-pre-wrap" data-testid="voice-reply">{reply}</div>
+            </div>
+          )}
+          {error && (
+            <div
+              className="rounded-lg border border-red-500/30 bg-red-500/5 p-3 flex items-start gap-2 text-red-300 text-xs"
+              data-testid="voice-error"
+            >
+              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+        </div>
 
-      <div className="text-[10px] text-slate-500 max-w-xs">
-        Whisper (STT) → DeepSeek → OpenAI TTS. Нажмите на микрофон, говорите, нажмите ещё раз — система ответит голосом.
-      </div>
+        <div className="text-[10px] text-slate-500 max-w-xs">
+          Whisper (STT) → DeepSeek → OpenAI TTS. Нажмите на микрофон, говорите, нажмите ещё раз — система ответит голосом.
+        </div>
 
-      <audio ref={audioElRef} className="hidden" data-testid="voice-audio" />
-    </section>
+        <audio ref={audioElRef} className="hidden" data-testid="voice-audio" />
+      </div>
+    </CollapsibleCard>
   );
 }

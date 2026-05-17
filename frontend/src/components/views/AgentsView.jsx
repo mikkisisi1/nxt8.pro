@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import api from "../../lib/api";
+import CollapsibleCard from "../CollapsibleCard";
 
 const LEVEL_COLOR = {
   junior: "text-orange-400",
@@ -168,17 +169,20 @@ export default function AgentsView() {
 
   return (
     <div className="space-y-3" data-testid="agents-view">
-      <section
-        className="glass-card rounded-2xl window-border glow-turquoise-subtle p-4 space-y-3"
-      >
-        <div className="flex justify-between items-center">
+      <CollapsibleCard
+        storageKey="agents-list"
+        testId="agents-list-card"
+        title={
           <span className="text-brand-turquoise font-light text-xs">
             mentor.engine
           </span>
+        }
+        titleRight={
           <span className="text-slate-500 text-[10px] uppercase tracking-widest">
             {employees.length} employees · {patterns.length} weak
           </span>
-        </div>
+        }
+      >
         <div className="space-y-2">
           {employees.map((e) => (
             <EmployeeRow
@@ -194,7 +198,7 @@ export default function AgentsView() {
             </div>
           )}
         </div>
-      </section>
+      </CollapsibleCard>
       {selected && (
         <EmployeeDetail
           employee={selected}
