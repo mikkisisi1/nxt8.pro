@@ -413,6 +413,8 @@ async def mempalace_health() -> Dict[str, Any]:
 
 @api.post("/mempalace/store")
 async def mempalace_store(req: MemPalaceStoreRequest) -> Dict[str, Any]:
+    if not (req.content or "").strip():
+        raise HTTPException(status_code=400, detail="content must not be empty")
     return await mempalace_agent.get_mempalace().store(
         content=req.content,
         wing=req.wing,

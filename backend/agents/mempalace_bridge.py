@@ -46,6 +46,7 @@ class MemPalaceBridge:
         self._coll = None
         self._stack = None
         self._init_lock = asyncio.Lock()
+        self._write_lock = asyncio.Lock()
         self._available = False
 
     # -------- init / health --------
@@ -118,22 +119,39 @@ class MemPalaceBridge:
         # nxt8:// pseudo-path keyed by uuid so each call is unique.
         source_file = f"nxt8://{wing_s}/{room_s}/{uuid.uuid4().hex}"
 
-        try:
-            from mempalace import miner
+        # mempalace 3.3.5 takes an exclusive process-level palace lock per
+        # add_drawer call — concurrent writes from the same uvicorn PID would
+        # fail with "palace ... is held by PID ...". Serialise locally and
+        # retry transient lock errors a few times before giving up.
+        from mempalace import miner
 
-            await asyncio.to_thread(
-                miner.add_drawer,
-                self._coll,
-                wing_s,
-                room_s,
-                content,
-                source_file,
-                0,
-                "nxt8",
-            )
-        except Exception as e:  # noqa: BLE001
-            logger.exception("mempalace store failed")
-            return {"ok": False, "error": str(e)}
+        last_err: Optional[Exception] = None
+        async with self._write_lock:
+            for attempt in range(4):
+                try:
+                    await asyncio.to_thread(
+                        miner.add_drawer,
+                        self._coll,
+                        wing_s,
+                        room_s,
+                        content,
+                        source_file,
+                        0,
+                        "nxt8",
+                    )
+                    last_err = None
+                    break
+                except Exception as e:  # noqa: BLE001
+                    last_err = e
+                    msg = str(e).lower()
+                    if "is held by pid" in msg or "lock" in msg:
+                        await asyncio.sleep(0.1 * (attempt + 1))
+                        continue
+                    logger.exception("mempalace store failed")
+                    return {"ok": False, "error": str(e)}
+        if last_err is not None:
+            logger.warning("mempalace store gave up after retries: %s", last_err)
+            return {"ok": False, "error": str(last_err)}
 
         return {
             "ok": True,

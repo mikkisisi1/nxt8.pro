@@ -107,11 +107,12 @@ class TestStore:
             json={"content": "   ", "wing": "internal", "room": "general"},
             timeout=15,
         )
-        # bridge returns {ok: False, error: "empty content"} with 200
-        assert r.status_code == 200, r.text
+        # Iter 8 fix: endpoint now raises HTTPException(400) on empty/whitespace content
+        assert r.status_code == 400, r.text
         d = r.json()
-        assert d.get("ok") is False
-        assert "empty" in (d.get("error") or "").lower()
+        # FastAPI standard error envelope
+        detail = d.get("detail") or ""
+        assert "empty" in detail.lower() or "must not be empty" in detail.lower(), d
 
     def test_store_missing_content_422(self, api):
         # Pydantic validation: content field required
@@ -146,6 +147,52 @@ class TestStore:
         time.sleep(1.0)
         h1 = api.get(f"{BASE_URL}/api/mempalace/health", timeout=15).json()
         assert h1["drawer_count"] >= c0 + 5, (c0, h1["drawer_count"])
+
+    def test_store_concurrent_stress_10(self, api, test_tag):
+        """Iter 8 stress: 10 concurrent stores must all succeed and persist."""
+        h0 = api.get(f"{BASE_URL}/api/mempalace/health", timeout=15).json()
+        c0 = h0["drawer_count"]
+        stress_tag = f"{test_tag}_stress10"
+
+        def _one(i):
+            return api.post(
+                f"{BASE_URL}/api/mempalace/store",
+                json={
+                    "content": f"{stress_tag} stress10 idx={i} — нагрузочный стресс параллельных записей.",
+                    "wing": "internal",
+                    "room": "stress",
+                    "metadata": {"tag": stress_tag, "i": i},
+                },
+                timeout=60,
+            )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
+            results = list(ex.map(_one, range(10)))
+
+        failures = []
+        for i, r in enumerate(results):
+            if r.status_code != 200:
+                failures.append((i, r.status_code, r.text[:200]))
+                continue
+            jr = r.json()
+            if not jr.get("ok"):
+                failures.append((i, 200, jr))
+        assert not failures, f"{len(failures)}/10 concurrent stores failed: {failures}"
+
+        time.sleep(2.0)
+        h1 = api.get(f"{BASE_URL}/api/mempalace/health", timeout=15).json()
+        assert h1["drawer_count"] >= c0 + 10, (c0, h1["drawer_count"])
+
+        # All 10 should be retrievable via semantic search filtered by wing/room
+        sr = api.post(
+            f"{BASE_URL}/api/mempalace/search",
+            json={"query": f"{stress_tag} stress10", "wing": "internal", "room": "stress", "top_k": 20},
+            timeout=60,
+        )
+        assert sr.status_code == 200
+        results = sr.json().get("results", [])
+        matched = [r for r in results if stress_tag in (r.get("content") or "")]
+        assert len(matched) >= 10, f"Expected 10 stress drawers retrievable, got {len(matched)}"
 
 
 # ---------------------------------------------------------------------------
@@ -336,6 +383,92 @@ class TestChatStreamAutosave:
         # content shape: "USER: ...\nASSISTANT: ..."
         assert "USER:" in (found["content"] or "")
         assert "ASSISTANT:" in (found["content"] or "")
+
+    def test_concurrent_streams_each_persist(self, api):
+        """Iter 8: 3 parallel /api/chat/stream sessions must each persist USER:/ASSISTANT:
+        drawer to wing=chats/room={session_id}. Verified by /api/mempalace/search per session
+        and confirmed in /api/mempalace/wings listing."""
+        sessions = []
+        for _ in range(3):
+            sid = f"sess_par_{uuid.uuid4().hex[:10]}"
+            phrase = f"уникальная_фраза_{uuid.uuid4().hex[:8]}"
+            sessions.append((sid, phrase))
+
+        def _drive_stream(item):
+            sid, phrase = item
+            msg = (
+                f"Кратко расскажи про корпоративные процессы NXT8, "
+                f"включи маркер {phrase} в ответ если можешь. "
+                "Длина: 2-3 предложения максимум."
+            )
+            payload = {"message": msg, "session_id": sid, "user_id": "TEST_user_par"}
+            saw = {"meta": False, "delta": False, "done": False, "status": None}
+            with api.post(
+                f"{BASE_URL}/api/chat/stream",
+                json=payload,
+                stream=True,
+                timeout=180,
+                headers={"Accept": "text/event-stream"},
+            ) as r:
+                saw["status"] = r.status_code
+                if r.status_code != 200:
+                    return saw
+                for raw in r.iter_lines(decode_unicode=True):
+                    if raw is None:
+                        continue
+                    if raw.startswith("event: meta"):
+                        saw["meta"] = True
+                    elif raw.startswith("event: delta"):
+                        saw["delta"] = True
+                    elif raw.startswith("event: done"):
+                        saw["done"] = True
+                        break
+            return saw
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
+            stream_results = list(ex.map(_drive_stream, sessions))
+
+        for sid, _ in sessions:
+            pass  # session_id already in sessions list
+        for i, sr in enumerate(stream_results):
+            assert sr["status"] == 200, f"stream {i} bad status: {sr}"
+            assert sr["meta"] and sr["delta"] and sr["done"], f"stream {i} incomplete: {sr}"
+
+        # Poll for each session's autosave (fire-and-forget asyncio.create_task)
+        deadline = time.time() + 40
+        found_by_sid = {}
+        while time.time() < deadline and len(found_by_sid) < len(sessions):
+            time.sleep(2.5)
+            for sid, phrase in sessions:
+                if sid in found_by_sid:
+                    continue
+                sr = api.post(
+                    f"{BASE_URL}/api/mempalace/search",
+                    json={"query": phrase, "wing": "chats", "room": sid, "top_k": 5},
+                    timeout=30,
+                )
+                if sr.status_code != 200:
+                    continue
+                results = sr.json().get("results", [])
+                if results:
+                    found_by_sid[sid] = results[0]
+
+        missing = [sid for sid, _ in sessions if sid not in found_by_sid]
+        assert not missing, f"Concurrent SSE autosave missing for sessions: {missing}"
+        for sid, drawer in found_by_sid.items():
+            assert drawer["wing"] == "chats", drawer
+            assert drawer["room"] == sid, drawer
+            content = drawer.get("content") or ""
+            assert "USER:" in content and "ASSISTANT:" in content, content[:200]
+
+        # Verify wings listing now contains the chats wing with these rooms
+        wr = api.get(f"{BASE_URL}/api/mempalace/wings", timeout=30)
+        assert wr.status_code == 200
+        wings = {w["wing"]: w for w in wr.json().get("wings", [])}
+        assert "chats" in wings, list(wings.keys())
+        chats_rooms = {r["room"] for r in wings["chats"]["rooms"]}
+        for sid, _ in sessions:
+            assert sid in chats_rooms, f"room {sid} missing in chats wing: {chats_rooms}"
 
 
 # ---------------------------------------------------------------------------
